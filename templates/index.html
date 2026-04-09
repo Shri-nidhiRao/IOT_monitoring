@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KVB Energies - IoT Device Monitoring</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="sidebar">
+        <div class="brand">
+            <h1>KVB Energies</h1>
+            <p>Device Monitoring</p>
+        </div>
+        <ul>
+            <li class="active"><a href="#dashboard">Dashboard</a></li>
+            <li><a href="#logs">Logs</a></li>
+        </ul>
+    </div>
+    <div class="main">
+        <header class="top-bar">
+            <h2>Real-Time Monitoring Dashboard</h2>
+            <div class="status-indicator">
+                <span class="status-dot online"></span>
+                Live
+            </div>
+        </header>
+        <div id="dashboard">
+            <div class="metrics-line">
+                <div class="metric-card" data-metric="temp">
+                    <div class="metric-icon">Temperatue</div>
+                    <div class="metric-value" id="temp">-- °C</div>
+                    <div class="metric-label">Temperature</div>
+                    <div class="metric-status" id="temp-status"></div>
+                </div>
+                <div class="metric-card" data-metric="pressure">
+                    <div class="metric-icon">Pressure</div>
+                    <div class="metric-value" id="pressure">-- kPa</div>
+                    <div class="metric-label">Pressure</div>
+                    <div class="metric-status" id="pressure-status"></div>
+                </div>
+                <div class="metric-card" data-metric="status">
+                    <div class="metric-icon">Status</div>
+                    <div class="metric-value" id="status">--</div>
+                    <div class="metric-label">Status</div>
+                </div>
+                <div class="metric-card" data-metric="limitA">
+                    <div class="metric-icon">Limit A</div>
+                    <div class="metric-value" id="limitA">OFF</div>
+                    <div class="metric-label">Limit A</div>
+                </div>
+                <div class="metric-card" data-metric="limitB">
+                    <div class="metric-icon">Limit B</div>
+                    <div class="metric-value" id="limitB">OFF</div>
+                    <div class="metric-label">Limit B</div>
+                </div>
+                <div class="metric-card" data-metric="last-updated">
+                    <div class="metric-icon">Last Update</div>
+                    <div class="metric-value" id="last-updated">--</div>
+                    <div class="metric-label">Last Update</div>
+                </div>
+            </div>
+            <div class="charts-section">
+                <div class="chart-card">
+                    <h3>Live Trends (Temp & Pressure)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="chartCanvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="logs" style="display: none;">
+            <div class="logs-card">
+                <h3>Recent Logs</h3>
+                <div class="table-container">
+                    <table id="logsTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Temp (°C)</th>
+                                <th>Pressure (kPa)</th>
+                                <th>Status</th>
+                                <th>Limit A</th>
+                                <th>Limit B</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>

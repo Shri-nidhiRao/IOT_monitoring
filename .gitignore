@@ -1,0 +1,16 @@
+# Virtual environments
+venv/
+env/
+.env
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDEs
+.vscode/
+
+# Ignore database or other temporary caches if added later
+*.sqlite3
