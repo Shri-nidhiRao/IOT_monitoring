@@ -70,12 +70,21 @@ def init_db():
             except Error:
                 pass
             
-            # Create scheduling table
+            # Create scheduling tables
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS schedule_settings (
                     id INT PRIMARY KEY,
                     on_time TIME,
                     off_time TIME
+                )
+            """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS schedule_history (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    on_time TIME,
+                    off_time TIME,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
@@ -131,15 +140,10 @@ def update_data():
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
-            
-            cursor.execute("SELECT on_time, off_time FROM schedule_settings WHERE id = 1")
-            schedule = cursor.fetchone()
-            curr_on_time = schedule[0] if schedule else None
-            curr_off_time = schedule[1] if schedule else None
 
             query = """
-            INSERT INTO device_logs (temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp, on_time, off_time)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO device_logs (temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """
             
             # Optional timestamp
@@ -151,7 +155,7 @@ def update_data():
                 ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
-            cursor.execute(query, (temp, pres, status_val, limitA, limitB, timestamp, curr_on_time, curr_off_time))
+            cursor.execute(query, (temp, pres, status_val, limitA, limitB, timestamp))
             conn.commit()
             cursor.close()
             conn.close()
@@ -239,11 +243,34 @@ def schedule_data():
                 "UPDATE schedule_settings SET on_time = %s, off_time = %s WHERE id = 1",
                 (on_time, off_time)
             )
+            cursor.execute(
+                "INSERT INTO schedule_history (on_time, off_time) VALUES (%s, %s)",
+                (on_time, off_time)
+            )
             conn.commit()
             cursor.close()
             conn.close()
             return jsonify({'status': 'success'})
     return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
+
+@app.route('/schedule-history', methods=['GET'])
+def schedule_history_data():
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM schedule_history ORDER BY id DESC LIMIT 50")
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        for r in results:
+            if r.get('timestamp'):
+                r['timestamp'] = r['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+            if 'on_time' in r and r['on_time'] is not None:
+                r['on_time'] = str(r['on_time'])
+            if 'off_time' in r and r['off_time'] is not None:
+                r['off_time'] = str(r['off_time'])
+        return jsonify(results)
+    return jsonify([]), 500
 
 @app.route('/health', methods=['GET'])
 def health():

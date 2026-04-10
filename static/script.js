@@ -123,8 +123,6 @@ async function updateLogs() {
                 <td>${row.limit_switch_A ? 'ON' : 'OFF'}</td>
                 <td>${row.limit_switch_B ? 'ON' : 'OFF'}</td>
                 <td>${new Date(row.timestamp).toLocaleString()}</td>
-                <td>${row.on_time ? row.on_time.split(':').slice(0,2).join(':') : '--:--'}</td>
-                <td>${row.off_time ? row.off_time.split(':').slice(0,2).join(':') : '--:--'}</td>
             `;
             tbody.appendChild(tr);
         });
@@ -181,15 +179,41 @@ document.getElementById('save-schedule')?.addEventListener('click', async () => 
     }
 });
 
+async function updateScheduleHistory() {
+    try {
+        const response = await fetch('/schedule-history');
+        if (!response.ok) return;
+        const history = await response.json();
+        const tbody = document.querySelector('#scheduleHistoryTable tbody');
+        tbody.innerHTML = '';
+        history.slice(0, 50).forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${row.id}</td>
+                <td>${row.on_time ? row.on_time.split(':').slice(0,2).join(':') : '--:--'}</td>
+                <td>${row.off_time ? row.off_time.split(':').slice(0,2).join(':') : '--:--'}</td>
+                <td>${new Date(row.timestamp).toLocaleString()}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        console.error('Schedule history update error:', e);
+    }
+}
+
 document.querySelectorAll('.sidebar a').forEach(link => {
     link.addEventListener('click', async (e) => {
         e.preventDefault();
-        const isDashboard = link.getAttribute('href') === '#dashboard';
-        document.getElementById('dashboard').style.display = isDashboard ? 'block' : 'none';
-        document.getElementById('logs').style.display = isDashboard ? 'none' : 'block';
+        const href = link.getAttribute('href');
+        document.getElementById('dashboard').style.display = href === '#dashboard' ? 'block' : 'none';
+        document.getElementById('logs').style.display = href === '#logs' ? 'block' : 'none';
+        document.getElementById('schedule-history').style.display = href === '#schedule-history' ? 'block' : 'none';
+        
         document.querySelector('.sidebar .active').classList.remove('active');
         link.parentElement.classList.add('active');
-        if (!isDashboard) updateLogs();
+        
+        if (href === '#logs') updateLogs();
+        if (href === '#schedule-history') updateScheduleHistory();
     });
 });
 
