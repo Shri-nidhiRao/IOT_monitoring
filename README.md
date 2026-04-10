@@ -29,29 +29,44 @@ The backend provides several public REST endpoints for external IoT devices to o
 
 ### 1. Send Telemetry Data
 - **Endpoint:** `POST /update`
-- **Description:** Forwards incoming sensory data from your physical IoT device.
+- **Description:** Forwards incoming sensory data from your physical IoT device. Employs strict device tracking natively.
 - **Headers:** `Content-Type: application/json`
 - **Request Payload Example:**
 ```json
 {
+    "mainid": "NODE_ALPHA_01",
     "temperature": 28.5,
     "pressure": 101.3,
-    "status": "ON",
     "limitA": true,
     "limitB": false
 }
 ```
 *Note: Include an optional `timestamp` key (Format: `YYYY-MM-DD HH:MM:SS`) or the database will automatically generate one for you.*
 
-### 2. Fetch Latest Log
-- **Endpoint:** `GET /latest`
-- **Description:** Returns the single most recent log entry from the database.
+### 2. Fetch Active Schedule Matrix
+- **Endpoint:** `GET /schedule`
+- **Description:** Allows your external device to query precisely when the physical hardware triggers should toggle based on the dashboard configuration.
+- **Response Example:**
+```json
+{
+    "on_time": "08:00:00",
+    "off_time": "18:00:00"
+}
+```
 
-### 3. Fetch Historical Data Logs
+### 3. Fetch Latest Log
+- **Endpoint:** `GET /latest`
+- **Description:** Returns the single most recent hardware data entry matrix.
+
+### 4. Fetch Historical Data Logs
 - **Endpoint:** `GET /history`
 - **Description:** Returns an array containing the last 50 telemetry logs, optimized specifically for charting.
 
-### 4. Health Check
+### 5. Fetch Schedule History
+- **Endpoint:** `GET /schedule-history`
+- **Description:** Retrieves the chronological logging of when the dashboard configurations were manually altered or reset.
+
+### 6. Health Check
 - **Endpoint:** `GET /health`
 - **Description:** Basic connectivity check and DB availability tracking.
 
