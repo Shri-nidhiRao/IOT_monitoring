@@ -51,8 +51,24 @@ def init_db():
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Create scheduling table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS schedule_settings (
+                    id INT PRIMARY KEY,
+                    on_time TIME,
+                    off_time TIME
+                )
+            """)
+            
+            # Seed default schedule if empty
+            cursor.execute("SELECT COUNT(*) FROM schedule_settings WHERE id = 1")
+            (count,) = cursor.fetchone()
+            if count == 0:
+                cursor.execute("INSERT INTO schedule_settings (id, on_time, off_time) VALUES (1, '08:00:00', '18:00:00')")
+
             conn.commit()
-            print("Database and table initialized.")
+            print("Database and tables initialized.")
         except Error as e:
             print(f"Table creation error: {e}")
             
@@ -150,6 +166,52 @@ def history_data():
                 r['timestamp'] = r['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
         return jsonify(results)
     return jsonify([]), 500
+
+@app.route('/schedule', methods=['GET', 'POST'])
+def schedule_data():
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        if request.method == 'GET':
+            cursor.execute("SELECT on_time, off_time FROM schedule_settings WHERE id = 1")
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if result:
+                on_time_str = str(result['on_time']) if result['on_time'] is not None else '--:--:--'
+                off_time_str = str(result['off_time']) if result['off_time'] is not None else '--:--:--'
+                
+                # Only keep HH:MM
+                if on_time_str.count(':') == 2:
+                    on_time_str = ":".join(on_time_str.split(':')[:2])
+                if off_time_str.count(':') == 2:
+                    off_time_str = ":".join(off_time_str.split(':')[:2])
+                    
+                # Format to HH:MM (adds leading 0 for single digit hour)
+                if len(on_time_str) == 4: on_time_str = "0" + on_time_str
+                if len(off_time_str) == 4: off_time_str = "0" + off_time_str
+
+                return jsonify({'on_time': on_time_str, 'off_time': off_time_str})
+            else:
+                return jsonify({'on_time': '--:--', 'off_time': '--:--'})
+
+        elif request.method == 'POST':
+            data = request.json
+            if not data or 'on_time' not in data or 'off_time' not in data:
+                return jsonify({'status': 'error', 'message': 'Missing on_time or off_time fields'}), 400
+            
+            on_time = data['on_time'] + ':00' if len(data['on_time']) == 5 else data['on_time']
+            off_time = data['off_time'] + ':00' if len(data['off_time']) == 5 else data['off_time']
+            
+            cursor.execute(
+                "UPDATE schedule_settings SET on_time = %s, off_time = %s WHERE id = 1",
+                (on_time, off_time)
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'success'})
+    return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
 
 @app.route('/health', methods=['GET'])
 def health():

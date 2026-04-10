@@ -133,6 +133,54 @@ async function updateLogs() {
     }
 }
 
+async function fetchSchedule() {
+    try {
+        const response = await fetch('/schedule');
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.on_time && data.on_time !== '--:--') {
+            document.getElementById('on_time').value = data.on_time;
+        }
+        if (data.off_time && data.off_time !== '--:--') {
+            document.getElementById('off_time').value = data.off_time;
+        }
+    } catch (e) {
+        console.error('Failed to fetch schedule:', e);
+    }
+}
+
+document.getElementById('save-schedule')?.addEventListener('click', async () => {
+    const onTime = document.getElementById('on_time').value;
+    const offTime = document.getElementById('off_time').value;
+    const btn = document.getElementById('save-schedule');
+    const originalText = btn.textContent;
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/schedule', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ on_time: onTime, off_time: offTime })
+        });
+        
+        if (response.ok) {
+            btn.textContent = 'Saved!';
+            setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+        } else {
+            console.error('Failed to save schedule');
+            btn.textContent = 'Error';
+            setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+        }
+    } catch (e) {
+        console.error('Schedule save error:', e);
+        btn.textContent = 'Error';
+        setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+    }
+});
+
 document.querySelectorAll('.sidebar a').forEach(link => {
     link.addEventListener('click', async (e) => {
         e.preventDefault();
@@ -146,6 +194,7 @@ document.querySelectorAll('.sidebar a').forEach(link => {
 });
 
 initCharts();
+fetchSchedule();
 setInterval(updateLatest, 1000);
 setInterval(updateHistory, 5000);
 setInterval(updateLogs, 10000);
