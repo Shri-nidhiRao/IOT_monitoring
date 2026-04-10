@@ -29,17 +29,25 @@ def get_db_connection(include_db=True):
 
 def init_db():
     """Initialize database and table if not exists."""
-    conn = get_db_connection(include_db=False)
+    # First try connecting with the database (safe for cloud providers like Aiven)
+    conn = get_db_connection(include_db=True)
+    db_name = DB_CONFIG.get('database', 'iot_monitoring')
+    
+    if not conn:
+        # Fallback for local hosting if database doesn't exist yet
+        conn = get_db_connection(include_db=False)
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name};")
+            except Error as e:
+                print(f"Skipping DB creation (might be managed cloud DB): {e}")
+            conn.database = db_name
+            cursor.close()
+
     if conn:
         cursor = conn.cursor()
-        db_name = DB_CONFIG.get('database', 'iot_monitoring')
         try:
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name};")
-        except Error as e:
-            print(f"Skipping DB creation (might be managed cloud DB): {e}")
-
-        try:
-            conn.database = db_name
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS device_logs (
                     id INT AUTO_INCREMENT PRIMARY KEY,
