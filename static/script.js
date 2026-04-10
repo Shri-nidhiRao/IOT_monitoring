@@ -118,6 +118,7 @@ async function updateLogs() {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${row.id}</td>
+                <td>${row.device_id || 'Unknown'}</td>
                 <td>${row.temperature.toFixed(1)}</td>
                 <td>${row.pressure.toFixed(1)}</td>
                 <td>${row.limit_switch_A ? 'ON' : 'OFF'}</td>

@@ -69,6 +69,10 @@ def init_db():
                 cursor.execute("ALTER TABLE device_logs ADD COLUMN off_time TIME;")
             except Error:
                 pass
+            try:
+                cursor.execute("ALTER TABLE device_logs ADD COLUMN device_id VARCHAR(50);")
+            except Error:
+                pass
             
             # Create scheduling tables
             cursor.execute("""
@@ -122,13 +126,14 @@ def update_data():
         if not data:
             return jsonify({'status': 'error', 'message': 'No JSON payload provided'}), 400
             
-        required_fields = ['temperature', 'pressure', 'limitA', 'limitB']
+        required_fields = ['device_id', 'temperature', 'pressure', 'limitA', 'limitB']
         for field in required_fields:
             if field not in data:
                 return jsonify({'status': 'error', 'message': f'Missing required field: {field}'}), 400
                 
         # Validate data types
         try:
+            device_id = str(data['device_id'])
             temp = float(data['temperature'])
             pres = float(data['pressure'])
             limitA = bool(data['limitA'])
@@ -142,8 +147,8 @@ def update_data():
             cursor = conn.cursor()
 
             query = """
-            INSERT INTO device_logs (temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO device_logs (device_id, temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
             
             # Optional timestamp
@@ -155,7 +160,7 @@ def update_data():
                 ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
-            cursor.execute(query, (temp, pres, status_val, limitA, limitB, timestamp))
+            cursor.execute(query, (device_id, temp, pres, status_val, limitA, limitB, timestamp))
             conn.commit()
             cursor.close()
             conn.close()
