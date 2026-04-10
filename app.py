@@ -105,7 +105,7 @@ def update_data():
         if not data:
             return jsonify({'status': 'error', 'message': 'No JSON payload provided'}), 400
             
-        required_fields = ['temperature', 'pressure', 'status', 'limitA', 'limitB']
+        required_fields = ['temperature', 'pressure', 'limitA', 'limitB']
         for field in required_fields:
             if field not in data:
                 return jsonify({'status': 'error', 'message': f'Missing required field: {field}'}), 400
@@ -116,7 +116,7 @@ def update_data():
             pres = float(data['pressure'])
             limitA = bool(data['limitA'])
             limitB = bool(data['limitB'])
-            status_val = str(data['status'])
+            status_val = str(data.get('status', 'N/A'))
         except ValueError:
             return jsonify({'status': 'error', 'message': 'Invalid data types provided'}), 400
 

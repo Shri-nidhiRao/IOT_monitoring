@@ -70,7 +70,6 @@ async function updateLatest() {
         if (data.id) {
             document.getElementById('temp').textContent = data.temperature.toFixed(1) + ' °C';
             document.getElementById('pressure').textContent = data.pressure.toFixed(1) + ' kPa';
-            document.getElementById('status').textContent = data.status;
             document.getElementById('last-updated').textContent = new Date(data.timestamp).toLocaleString();
             const limitAEl = document.getElementById('limitA');
             const limitBEl = document.getElementById('limitB');
@@ -121,7 +120,6 @@ async function updateLogs() {
                 <td>${row.id}</td>
                 <td>${row.temperature.toFixed(1)}</td>
                 <td>${row.pressure.toFixed(1)}</td>
-                <td>${row.status}</td>
                 <td>${row.limit_switch_A ? 'ON' : 'OFF'}</td>
                 <td>${row.limit_switch_B ? 'ON' : 'OFF'}</td>
                 <td>${new Date(row.timestamp).toLocaleString()}</td>
