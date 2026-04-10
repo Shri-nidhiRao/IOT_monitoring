@@ -52,6 +52,16 @@ def init_db():
                 )
             """)
             
+            # Safely alter table to add the required columns without dropping existing data
+            try:
+                cursor.execute("ALTER TABLE device_logs ADD COLUMN on_time TIME;")
+            except Error:
+                pass
+            try:
+                cursor.execute("ALTER TABLE device_logs ADD COLUMN off_time TIME;")
+            except Error:
+                pass
+            
             # Create scheduling table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS schedule_settings (
@@ -113,9 +123,15 @@ def update_data():
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
+            
+            cursor.execute("SELECT on_time, off_time FROM schedule_settings WHERE id = 1")
+            schedule = cursor.fetchone()
+            curr_on_time = schedule[0] if schedule else None
+            curr_off_time = schedule[1] if schedule else None
+
             query = """
-            INSERT INTO device_logs (temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO device_logs (temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp, on_time, off_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """
             
             # Optional timestamp
@@ -127,7 +143,7 @@ def update_data():
                 ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
-            cursor.execute(query, (temp, pres, status_val, limitA, limitB, timestamp))
+            cursor.execute(query, (temp, pres, status_val, limitA, limitB, timestamp, curr_on_time, curr_off_time))
             conn.commit()
             cursor.close()
             conn.close()
@@ -149,6 +165,10 @@ def latest_data():
         if result:
             if result.get('timestamp'):
                 result['timestamp'] = result['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+            if 'on_time' in result and result['on_time'] is not None:
+                result['on_time'] = str(result['on_time'])
+            if 'off_time' in result and result['off_time'] is not None:
+                result['off_time'] = str(result['off_time'])
             return jsonify(result)
     return jsonify({}), 404
 
@@ -164,6 +184,10 @@ def history_data():
         for r in results:
             if r.get('timestamp'):
                 r['timestamp'] = r['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+            if 'on_time' in r and r['on_time'] is not None:
+                r['on_time'] = str(r['on_time'])
+            if 'off_time' in r and r['off_time'] is not None:
+                r['off_time'] = str(r['off_time'])
         return jsonify(results)
     return jsonify([]), 500
 

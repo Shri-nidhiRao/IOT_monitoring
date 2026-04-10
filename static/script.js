@@ -125,6 +125,8 @@ async function updateLogs() {
                 <td>${row.limit_switch_A ? 'ON' : 'OFF'}</td>
                 <td>${row.limit_switch_B ? 'ON' : 'OFF'}</td>
                 <td>${new Date(row.timestamp).toLocaleString()}</td>
+                <td>${row.on_time ? row.on_time.split(':').slice(0,2).join(':') : '--:--'}</td>
+                <td>${row.off_time ? row.off_time.split(':').slice(0,2).join(':') : '--:--'}</td>
             `;
             tbody.appendChild(tr);
         });
