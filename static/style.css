@@ -213,24 +213,24 @@ body {
     overflow-y: auto;
 }
 
-#logsTable {
+#logsTable, #scheduleHistoryTable {
     width: 100%;
     border-collapse: collapse;
 }
 
-#logsTable th {
+#logsTable th, #scheduleHistoryTable th {
     background: rgba(0,255,0,0.2);
     color: #00ff88;
     padding: 15px;
     text-align: left;
 }
 
-#logsTable td {
+#logsTable td, #scheduleHistoryTable td {
     padding: 12px 15px;
     border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
-#logsTable tr:hover {
+#logsTable tr:hover, #scheduleHistoryTable tr:hover {
     background: rgba(0,255,0,0.05);
 }
 
