@@ -105,8 +105,11 @@ def update_data():
             # Optional timestamp
             timestamp = data.get('timestamp')
             if not timestamp:
-                from datetime import datetime
-                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                from datetime import datetime, timedelta
+                # Force IST by adding 5 hours 30 mins to UTC. This ensures it displays 
+                # correctly even when running on Render's UTC-default servers.
+                ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+                timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
             cursor.execute(query, (temp, pres, status_val, limitA, limitB, timestamp))
             conn.commit()
