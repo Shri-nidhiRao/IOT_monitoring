@@ -239,13 +239,17 @@ def schedule_data():
             on_time = data['on_time'] + ':00' if len(data['on_time']) == 5 else data['on_time']
             off_time = data['off_time'] + ':00' if len(data['off_time']) == 5 else data['off_time']
             
+            from datetime import datetime, timedelta
+            ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
+
             cursor.execute(
                 "UPDATE schedule_settings SET on_time = %s, off_time = %s WHERE id = 1",
                 (on_time, off_time)
             )
             cursor.execute(
-                "INSERT INTO schedule_history (on_time, off_time) VALUES (%s, %s)",
-                (on_time, off_time)
+                "INSERT INTO schedule_history (on_time, off_time, timestamp) VALUES (%s, %s, %s)",
+                (on_time, off_time, timestamp)
             )
             conn.commit()
             cursor.close()
