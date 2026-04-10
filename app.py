@@ -126,14 +126,14 @@ def update_data():
         if not data:
             return jsonify({'status': 'error', 'message': 'No JSON payload provided'}), 400
             
-        required_fields = ['device_id', 'temperature', 'pressure', 'limitA', 'limitB']
+        required_fields = ['mainid', 'temperature', 'pressure', 'limitA', 'limitB']
         for field in required_fields:
             if field not in data:
                 return jsonify({'status': 'error', 'message': f'Missing required field: {field}'}), 400
                 
         # Validate data types
         try:
-            device_id = str(data['device_id'])
+            device_id = str(data['mainid'])
             temp = float(data['temperature'])
             pres = float(data['pressure'])
             limitA = bool(data['limitA'])
