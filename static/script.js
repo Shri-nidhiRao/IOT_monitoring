@@ -124,6 +124,9 @@ async function updateLogs() {
                 <td>${row.pressure.toFixed(1)}</td>
                 <td>${row.limit_switch_A ? 'ON' : 'OFF'}</td>
                 <td>${row.limit_switch_B ? 'ON' : 'OFF'}</td>
+                <td>${row.on_time || '--:--:--'}</td>
+                <td>${row.off_time || '--:--:--'}</td>
+                <td>${row.motor_status || 'Unknown'}</td>
                 <td>${new Date(row.timestamp).toLocaleString()}</td>
             `;
             tbody.appendChild(tr);

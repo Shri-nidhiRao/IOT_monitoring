@@ -70,6 +70,10 @@ def init_db():
             except Error:
                 pass
             try:
+                cursor.execute("ALTER TABLE device_logs ADD COLUMN motor_status VARCHAR(50);")
+            except Error:
+                pass
+            try:
                 cursor.execute("ALTER TABLE device_logs ADD COLUMN device_id VARCHAR(50);")
             except Error:
                 pass
@@ -129,21 +133,20 @@ def update_data():
         data = request.json
         if not data:
             return jsonify({'status': 'error', 'message': 'No JSON payload provided'}), 400
-            
-        required_fields = ['mainid', 'temperature', 'pressure', 'limitA', 'limitB']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'status': 'error', 'message': f'Missing required field: {field}'}), 400
-                
         # Validate data types
         try:
-            device_id = str(data['mainid'])
+            device_id = str(data.get('mainid', 'Unknown'))
             device_name = str(data.get('Device_name', data.get('device_name', 'Unknown')))
-            temp = float(data['temperature'])
-            pres = float(data['pressure'])
-            limitA = bool(data['limitA'])
-            limitB = bool(data['limitB'])
+            temp = float(data.get('temperature', 0.0))
+            pres = float(data.get('pressure', 0.0))
+            limitA = bool(data.get('limitA', False))
+            limitB = bool(data.get('limitB', False))
             status_val = str(data.get('status', 'N/A'))
+            
+            # Added new payload variable extractors with robust defaults
+            on_time = str(data.get('on_time', data.get('on time', '00:00:00')))
+            off_time = str(data.get('off_time', data.get('off time', '00:00:00')))
+            motor_status = str(data.get('motor_status', data.get('motor status', 'Unknown')))
         except ValueError:
             return jsonify({'status': 'error', 'message': 'Invalid data types provided'}), 400
 
@@ -152,8 +155,8 @@ def update_data():
             cursor = conn.cursor()
 
             query = """
-            INSERT INTO device_logs (device_id, device_name, temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO device_logs (device_id, device_name, temperature, pressure, status, limit_switch_A, limit_switch_B, on_time, off_time, motor_status, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             
             # Optional timestamp
@@ -165,7 +168,7 @@ def update_data():
                 ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
-            cursor.execute(query, (device_id, device_name, temp, pres, status_val, limitA, limitB, timestamp))
+            cursor.execute(query, (device_id, device_name, temp, pres, status_val, limitA, limitB, on_time, off_time, motor_status, timestamp))
             conn.commit()
             cursor.close()
             conn.close()
