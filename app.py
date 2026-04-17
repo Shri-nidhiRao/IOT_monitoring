@@ -73,6 +73,10 @@ def init_db():
                 cursor.execute("ALTER TABLE device_logs ADD COLUMN device_id VARCHAR(50);")
             except Error:
                 pass
+            try:
+                cursor.execute("ALTER TABLE device_logs ADD COLUMN device_name VARCHAR(100);")
+            except Error:
+                pass
             
             # Create scheduling tables
             cursor.execute("""
@@ -134,6 +138,7 @@ def update_data():
         # Validate data types
         try:
             device_id = str(data['mainid'])
+            device_name = str(data.get('Device_name', data.get('device_name', 'Unknown')))
             temp = float(data['temperature'])
             pres = float(data['pressure'])
             limitA = bool(data['limitA'])
@@ -147,8 +152,8 @@ def update_data():
             cursor = conn.cursor()
 
             query = """
-            INSERT INTO device_logs (device_id, temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO device_logs (device_id, device_name, temperature, pressure, status, limit_switch_A, limit_switch_B, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """
             
             # Optional timestamp
@@ -160,7 +165,7 @@ def update_data():
                 ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
-            cursor.execute(query, (device_id, temp, pres, status_val, limitA, limitB, timestamp))
+            cursor.execute(query, (device_id, device_name, temp, pres, status_val, limitA, limitB, timestamp))
             conn.commit()
             cursor.close()
             conn.close()
