@@ -175,6 +175,26 @@ def update_data():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+def format_history_results(results):
+    for r in results:
+        if r.get('timestamp'):
+            r['timestamp'] = r['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+        if 'on_time' in r and r['on_time'] is not None:
+            r['on_time'] = str(r['on_time'])
+        if 'off_time' in r and r['off_time'] is not None:
+            r['off_time'] = str(r['off_time'])
+    return results
+
+def format_latest_result(result):
+    if result:
+        if result.get('timestamp'):
+            result['timestamp'] = result['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+        if 'on_time' in result and result['on_time'] is not None:
+            result['on_time'] = str(result['on_time'])
+        if 'off_time' in result and result['off_time'] is not None:
+            result['off_time'] = str(result['off_time'])
+    return result
+
 @app.route('/latest', methods=['GET'])
 def latest_data():
     conn = get_db_connection()
@@ -185,13 +205,33 @@ def latest_data():
         cursor.close()
         conn.close()
         if result:
-            if result.get('timestamp'):
-                result['timestamp'] = result['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
-            if 'on_time' in result and result['on_time'] is not None:
-                result['on_time'] = str(result['on_time'])
-            if 'off_time' in result and result['off_time'] is not None:
-                result['off_time'] = str(result['off_time'])
-            return jsonify(result)
+            return jsonify(format_latest_result(result))
+    return jsonify({}), 404
+
+@app.route('/latest/id/<string:device_id>', methods=['GET'])
+def latest_by_id(device_id):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM device_logs WHERE device_id = %s ORDER BY id DESC LIMIT 1", (device_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if result:
+            return jsonify(format_latest_result(result))
+    return jsonify({}), 404
+
+@app.route('/latest/name/<string:device_name>', methods=['GET'])
+def latest_by_name(device_name):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM device_logs WHERE device_name = %s ORDER BY id DESC LIMIT 1", (device_name,))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if result:
+            return jsonify(format_latest_result(result))
     return jsonify({}), 404
 
 @app.route('/history', methods=['GET'])
@@ -203,14 +243,31 @@ def history_data():
         results = cursor.fetchall()
         cursor.close()
         conn.close()
-        for r in results:
-            if r.get('timestamp'):
-                r['timestamp'] = r['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
-            if 'on_time' in r and r['on_time'] is not None:
-                r['on_time'] = str(r['on_time'])
-            if 'off_time' in r and r['off_time'] is not None:
-                r['off_time'] = str(r['off_time'])
-        return jsonify(results)
+        return jsonify(format_history_results(results))
+    return jsonify([]), 500
+
+@app.route('/history/id/<string:device_id>', methods=['GET'])
+def history_by_id(device_id):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM device_logs WHERE device_id = %s ORDER BY id DESC LIMIT 50", (device_id,))
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify(format_history_results(results))
+    return jsonify([]), 500
+
+@app.route('/history/name/<string:device_name>', methods=['GET'])
+def history_by_name(device_name):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM device_logs WHERE device_name = %s ORDER BY id DESC LIMIT 50", (device_name,))
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify(format_history_results(results))
     return jsonify([]), 500
 
 @app.route('/schedule', methods=['GET', 'POST'])
