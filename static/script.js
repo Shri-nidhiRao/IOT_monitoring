@@ -71,6 +71,11 @@ async function updateLatest() {
             document.getElementById('temp').textContent = data.temperature.toFixed(1) + ' °C';
             document.getElementById('pressure').textContent = data.pressure.toFixed(1) + ' kPa';
             document.getElementById('last-updated').textContent = new Date(data.timestamp).toLocaleString();
+            
+            document.getElementById('disp-on-time').textContent = data.on_time || '--:--:--';
+            document.getElementById('disp-off-time').textContent = data.off_time || '--:--:--';
+            document.getElementById('disp-motor-status').textContent = data.motor_status || 'Unknown';
+            
             const limitAEl = document.getElementById('limitA');
             const limitBEl = document.getElementById('limitB');
             limitAEl.textContent = data.limit_switch_A ? 'ON' : 'OFF';
