@@ -55,7 +55,6 @@ def init_db():
                     device_name VARCHAR(100),
                     temperature FLOAT NOT NULL,
                     pressure FLOAT NOT NULL,
-                    status VARCHAR(10) NOT NULL,
                     limit_switch_A BOOLEAN NOT NULL,
                     limit_switch_B BOOLEAN NOT NULL,
                     on_time VARCHAR(50),
@@ -66,6 +65,12 @@ def init_db():
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Safely drop status from previously built tables
+            try:
+                cursor.execute("ALTER TABLE logs_table DROP COLUMN status;")
+            except Error:
+                pass
             
             # Create scheduling tables
             cursor.execute("""
@@ -146,7 +151,6 @@ def update_data():
             
             limitA = False
             limitB = False
-            status_val = 'OK'
             motor_status = 'Unknown'
             timestamp = None
         else:
@@ -161,7 +165,6 @@ def update_data():
                 pres = float(data.get('pressure', 0.0))
                 limitA = bool(data.get('limitA', False))
                 limitB = bool(data.get('limitB', False))
-                status_val = str(data.get('status', 'N/A'))
                 
                 # Added new payload variable extractors with robust defaults
                 on_time = str(data.get('on_time', data.get('on time', '0')))
@@ -178,8 +181,8 @@ def update_data():
             cursor = conn.cursor()
 
             query = """
-            INSERT INTO logs_table (device_id, device_name, temperature, pressure, status, limit_switch_A, limit_switch_B, on_time, off_time, morning_time, evening_time, motor_status, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO logs_table (device_id, device_name, temperature, pressure, limit_switch_A, limit_switch_B, on_time, off_time, morning_time, evening_time, motor_status, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             
             # Optional timestamp
@@ -190,7 +193,7 @@ def update_data():
                 ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
-            cursor.execute(query, (device_id, device_name, temp, pres, status_val, limitA, limitB, on_time, off_time, morning_time, evening_time, motor_status, timestamp))
+            cursor.execute(query, (device_id, device_name, temp, pres, limitA, limitB, on_time, off_time, morning_time, evening_time, motor_status, timestamp))
             conn.commit()
             cursor.close()
             conn.close()
