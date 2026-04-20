@@ -54,13 +54,23 @@
                 </div>
                 <div class="metric-card" data-metric="on-time">
                     <div class="metric-icon">ON Time</div>
-                    <div class="metric-value" id="disp-on-time">--:--:--</div>
-                    <div class="metric-label">Device ON Time</div>
+                    <div class="metric-value" id="disp-on-time">--</div>
+                    <div class="metric-label">Device ON Time (s/ms)</div>
                 </div>
                 <div class="metric-card" data-metric="off-time">
                     <div class="metric-icon">OFF Time</div>
-                    <div class="metric-value" id="disp-off-time">--:--:--</div>
-                    <div class="metric-label">Device OFF Time</div>
+                    <div class="metric-value" id="disp-off-time">--</div>
+                    <div class="metric-label">Device OFF Time (s/ms)</div>
+                </div>
+                <div class="metric-card" data-metric="morning-time">
+                    <div class="metric-icon">Morning</div>
+                    <div class="metric-value" id="disp-morning-time">--:--</div>
+                    <div class="metric-label">Morning Time</div>
+                </div>
+                <div class="metric-card" data-metric="evening-time">
+                    <div class="metric-icon">Evening</div>
+                    <div class="metric-value" id="disp-evening-time">--:--</div>
+                    <div class="metric-label">Evening Time</div>
                 </div>
                 <div class="metric-card" data-metric="motor-status">
                     <div class="metric-icon">Motor</div>
@@ -78,12 +88,20 @@
                     <h3>Device Schedule</h3>
                     <div class="schedule-form">
                         <div class="input-group">
-                            <label for="on_time">ON Time</label>
-                            <input type="time" id="on_time" value="08:00">
+                            <label for="on_time">ON Time (s/ms)</label>
+                            <input type="text" id="on_time" placeholder="e.g. 5s 100ms">
                         </div>
                         <div class="input-group">
-                            <label for="off_time">OFF Time</label>
-                            <input type="time" id="off_time" value="18:00">
+                            <label for="off_time">OFF Time (s/ms)</label>
+                            <input type="text" id="off_time" placeholder="e.g. 10s">
+                        </div>
+                        <div class="input-group">
+                            <label for="morning_time">Morning Time</label>
+                            <input type="time" id="morning_time" value="08:00">
+                        </div>
+                        <div class="input-group">
+                            <label for="evening_time">Evening Time</label>
+                            <input type="time" id="evening_time" value="18:00">
                         </div>
                         <button id="save-schedule" class="btn-primary">Save Schedule</button>
                     </div>
@@ -91,9 +109,15 @@
             </div>
             <div class="charts-section">
                 <div class="chart-card">
-                    <h3>Live Trends (Temp & Pressure)</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="chartCanvas"></canvas>
+                    <h3>Temperature Trend</h3>
+                    <div class="chart-wrapper temp-wrapper">
+                        <canvas id="temperatureChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <h3>Pressure Trend</h3>
+                    <div class="chart-wrapper pressure-wrapper">
+                        <canvas id="pressureChart"></canvas>
                     </div>
                 </div>
             </div>
@@ -114,6 +138,8 @@
                                 <th>Limit B</th>
                                 <th>On Time</th>
                                 <th>Off Time</th>
+                                <th>Morning Time</th>
+                                <th>Evening Time</th>
                                 <th>Motor Status</th>
                                 <th>Time</th>
                             </tr>
@@ -133,6 +159,8 @@
                                 <th>ID</th>
                                 <th>ON Time</th>
                                 <th>OFF Time</th>
+                                <th>Morning Time</th>
+                                <th>Evening Time</th>
                                 <th>Update Time</th>
                             </tr>
                         </thead>

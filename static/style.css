@@ -94,6 +94,11 @@ body {
     animation: pulse 2s infinite;
 }
 
+.status-dot.offline {
+    background: #ff4444;
+    animation: none;
+}
+
 @keyframes pulse {
     0% { opacity: 1; }
     50% { opacity: 0.5; }
@@ -270,7 +275,8 @@ body {
     letter-spacing: 1px;
 }
 
-.input-group input[type="time"] {
+.input-group input[type="time"],
+.input-group input[type="text"] {
     background: rgba(10,10,10,0.8);
     border: 1px solid rgba(0,255,0,0.3);
     color: #00ff88;
@@ -282,7 +288,8 @@ body {
     transition: box-shadow 0.3s;
 }
 
-.input-group input[type="time"]:focus {
+.input-group input[type="time"]:focus,
+.input-group input[type="text"]:focus {
     box-shadow: 0 0 10px rgba(0,255,136,0.5);
     border-color: #00ff88;
 }

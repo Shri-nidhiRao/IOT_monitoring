@@ -49,62 +49,51 @@ def init_db():
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS device_logs (
+                CREATE TABLE IF NOT EXISTS logs_table (
                     id INT AUTO_INCREMENT PRIMARY KEY,
+                    device_id VARCHAR(50),
+                    device_name VARCHAR(100),
                     temperature FLOAT NOT NULL,
                     pressure FLOAT NOT NULL,
                     status VARCHAR(10) NOT NULL,
                     limit_switch_A BOOLEAN NOT NULL,
                     limit_switch_B BOOLEAN NOT NULL,
+                    on_time VARCHAR(50),
+                    off_time VARCHAR(50),
+                    morning_time VARCHAR(50),
+                    evening_time VARCHAR(50),
+                    motor_status VARCHAR(50),
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
-            # Safely alter table to add the required columns without dropping existing data
-            try:
-                cursor.execute("ALTER TABLE device_logs ADD COLUMN on_time TIME;")
-            except Error:
-                pass
-            try:
-                cursor.execute("ALTER TABLE device_logs ADD COLUMN off_time TIME;")
-            except Error:
-                pass
-            try:
-                cursor.execute("ALTER TABLE device_logs ADD COLUMN motor_status VARCHAR(50);")
-            except Error:
-                pass
-            try:
-                cursor.execute("ALTER TABLE device_logs ADD COLUMN device_id VARCHAR(50);")
-            except Error:
-                pass
-            try:
-                cursor.execute("ALTER TABLE device_logs ADD COLUMN device_name VARCHAR(100);")
-            except Error:
-                pass
-            
             # Create scheduling tables
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS schedule_settings (
+                CREATE TABLE IF NOT EXISTS schedule_table (
                     id INT PRIMARY KEY,
-                    on_time TIME,
-                    off_time TIME
+                    on_time VARCHAR(50),
+                    off_time VARCHAR(50),
+                    morning_time VARCHAR(50),
+                    evening_time VARCHAR(50)
                 )
             """)
             
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS schedule_history (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    on_time TIME,
-                    off_time TIME,
+                    on_time VARCHAR(50),
+                    off_time VARCHAR(50),
+                    morning_time VARCHAR(50),
+                    evening_time VARCHAR(50),
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
             # Seed default schedule if empty
-            cursor.execute("SELECT COUNT(*) FROM schedule_settings WHERE id = 1")
+            cursor.execute("SELECT COUNT(*) FROM schedule_table WHERE id = 1")
             (count,) = cursor.fetchone()
             if count == 0:
-                cursor.execute("INSERT INTO schedule_settings (id, on_time, off_time) VALUES (1, '08:00:00', '18:00:00')")
+                cursor.execute("INSERT INTO schedule_table (id, on_time, off_time, morning_time, evening_time) VALUES (1, '10', '10', '08:00', '18:00')")
 
             conn.commit()
             print("Database and tables initialized.")
@@ -127,40 +116,67 @@ def after_request(response):
 def index():
     return render_template('index.html')
 
-@app.route('/update', methods=['POST'])
+@app.route('/update', methods=['GET', 'POST'])
 def update_data():
     try:
-        data = request.json
-        if not data:
-            return jsonify({'status': 'error', 'message': 'No JSON payload provided'}), 400
-        # Validate data types
-        try:
-            device_id = str(data.get('mainid', 'Unknown'))
-            device_name = str(data.get('Device_name', data.get('device_name', 'Unknown')))
-            temp = float(data.get('temperature', 0.0))
-            pres = float(data.get('pressure', 0.0))
-            limitA = bool(data.get('limitA', False))
-            limitB = bool(data.get('limitB', False))
-            status_val = str(data.get('status', 'N/A'))
-            
-            # Added new payload variable extractors with robust defaults
-            on_time = str(data.get('on_time', data.get('on time', '00:00:00')))
-            off_time = str(data.get('off_time', data.get('off time', '00:00:00')))
-            motor_status = str(data.get('motor_status', data.get('motor status', 'Unknown')))
-        except ValueError:
-            return jsonify({'status': 'error', 'message': 'Invalid data types provided'}), 400
+        if request.method == 'GET':
+            try:
+                # Handle ThingSpeak Style GET Request from the hardware
+                device_id = str(request.args.get('api_key', 'Unknown_Auth'))
+                device_name = 'ThingSpeak_Node'
+                pres = float(request.args.get('field1', 0.0))
+                temp = float(request.args.get('field2', 0.0))
+                
+                # Math conversion: field3 sending 11.30 -> "11:30"
+                m_float = float(request.args.get('field3', 0.0))
+                e_float = float(request.args.get('field4', 0.0))
+                morning_time = f"{int(m_float):02d}:{round((m_float % 1) * 100):02d}"
+                evening_time = f"{int(e_float):02d}:{round((e_float % 1) * 100):02d}"
+                
+                on_time = str(request.args.get('field5', '0.0'))
+                off_time = str(request.args.get('field6', '0.0'))
+                
+                limitA = False
+                limitB = False
+                status_val = 'OK'
+                motor_status = 'Unknown'
+                timestamp = None
+            except ValueError:
+                return jsonify({'status': 'error', 'message': 'Invalid query parameters'}), 400
+        else:
+            data = request.json
+            if not data:
+                return jsonify({'status': 'error', 'message': 'No JSON payload provided'}), 400
+            # Validate data types
+            try:
+                device_id = str(data.get('mainid', 'Unknown'))
+                device_name = str(data.get('Device_name', data.get('device_name', 'Unknown')))
+                temp = float(data.get('temperature', 0.0))
+                pres = float(data.get('pressure', 0.0))
+                limitA = bool(data.get('limitA', False))
+                limitB = bool(data.get('limitB', False))
+                status_val = str(data.get('status', 'N/A'))
+                
+                # Added new payload variable extractors with robust defaults
+                on_time = str(data.get('on_time', data.get('on time', '0')))
+                off_time = str(data.get('off_time', data.get('off time', '0')))
+                morning_time = str(data.get('morning_time', data.get('morning time', '--:--')))
+                evening_time = str(data.get('evening_time', data.get('evening time', '--:--')))
+                motor_status = str(data.get('motor_status', data.get('motor status', 'Unknown')))
+                timestamp = data.get('timestamp')
+            except ValueError:
+                return jsonify({'status': 'error', 'message': 'Invalid data types provided'}), 400
 
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
 
             query = """
-            INSERT INTO device_logs (device_id, device_name, temperature, pressure, status, limit_switch_A, limit_switch_B, on_time, off_time, motor_status, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO logs_table (device_id, device_name, temperature, pressure, status, limit_switch_A, limit_switch_B, on_time, off_time, morning_time, evening_time, motor_status, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             
             # Optional timestamp
-            timestamp = data.get('timestamp')
             if not timestamp:
                 from datetime import datetime, timedelta
                 # Force IST by adding 5 hours 30 mins to UTC. This ensures it displays 
@@ -168,7 +184,7 @@ def update_data():
                 ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
-            cursor.execute(query, (device_id, device_name, temp, pres, status_val, limitA, limitB, on_time, off_time, motor_status, timestamp))
+            cursor.execute(query, (device_id, device_name, temp, pres, status_val, limitA, limitB, on_time, off_time, morning_time, evening_time, motor_status, timestamp))
             conn.commit()
             cursor.close()
             conn.close()
@@ -203,7 +219,7 @@ def latest_data():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM device_logs ORDER BY id DESC LIMIT 1")
+        cursor.execute("SELECT * FROM logs_table ORDER BY id DESC LIMIT 1")
         result = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -216,7 +232,7 @@ def latest_by_id(device_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM device_logs WHERE device_id = %s ORDER BY id DESC LIMIT 1", (device_id,))
+        cursor.execute("SELECT * FROM logs_table WHERE device_id = %s ORDER BY id DESC LIMIT 1", (device_id,))
         result = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -229,7 +245,7 @@ def latest_by_name(device_name):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM device_logs WHERE device_name = %s ORDER BY id DESC LIMIT 1", (device_name,))
+        cursor.execute("SELECT * FROM logs_table WHERE device_name = %s ORDER BY id DESC LIMIT 1", (device_name,))
         result = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -242,7 +258,7 @@ def history_data():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM device_logs ORDER BY id DESC LIMIT 50")
+        cursor.execute("SELECT * FROM logs_table ORDER BY id DESC LIMIT 50")
         results = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -254,7 +270,7 @@ def history_by_id(device_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM device_logs WHERE device_id = %s ORDER BY id DESC LIMIT 50", (device_id,))
+        cursor.execute("SELECT * FROM logs_table WHERE device_id = %s ORDER BY id DESC LIMIT 50", (device_id,))
         results = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -266,7 +282,7 @@ def history_by_name(device_name):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM device_logs WHERE device_name = %s ORDER BY id DESC LIMIT 50", (device_name,))
+        cursor.execute("SELECT * FROM logs_table WHERE device_name = %s ORDER BY id DESC LIMIT 50", (device_name,))
         results = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -279,47 +295,47 @@ def schedule_data():
     if conn:
         cursor = conn.cursor(dictionary=True)
         if request.method == 'GET':
-            cursor.execute("SELECT on_time, off_time FROM schedule_settings WHERE id = 1")
+            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
             result = cursor.fetchone()
             cursor.close()
             conn.close()
             if result:
-                on_time_str = str(result['on_time']) if result['on_time'] is not None else '--:--:--'
-                off_time_str = str(result['off_time']) if result['off_time'] is not None else '--:--:--'
+                on_time_str = str(result['on_time']) if result['on_time'] is not None else '--'
+                off_time_str = str(result['off_time']) if result['off_time'] is not None else '--'
+                morning_time_str = str(result['morning_time']) if result['morning_time'] is not None else '--:--'
+                evening_time_str = str(result['evening_time']) if result['evening_time'] is not None else '--:--'
                 
-                # Only keep HH:MM
-                if on_time_str.count(':') == 2:
-                    on_time_str = ":".join(on_time_str.split(':')[:2])
-                if off_time_str.count(':') == 2:
-                    off_time_str = ":".join(off_time_str.split(':')[:2])
-                    
-                # Format to HH:MM (adds leading 0 for single digit hour)
-                if len(on_time_str) == 4: on_time_str = "0" + on_time_str
-                if len(off_time_str) == 4: off_time_str = "0" + off_time_str
+                # Try formatting morning/evening time for display if they contain seconds like HH:MM:SS
+                if morning_time_str.count(':') == 2:
+                    morning_time_str = ":".join(morning_time_str.split(':')[:2])
+                if evening_time_str.count(':') == 2:
+                    evening_time_str = ":".join(evening_time_str.split(':')[:2])
 
-                return jsonify({'on_time': on_time_str, 'off_time': off_time_str})
+                return jsonify({'on_time': on_time_str, 'off_time': off_time_str, 'morning_time': morning_time_str, 'evening_time': evening_time_str})
             else:
-                return jsonify({'on_time': '--:--', 'off_time': '--:--'})
+                return jsonify({'on_time': '--', 'off_time': '--', 'morning_time': '--:--', 'evening_time': '--:--'})
 
         elif request.method == 'POST':
             data = request.json
             if not data or 'on_time' not in data or 'off_time' not in data:
                 return jsonify({'status': 'error', 'message': 'Missing on_time or off_time fields'}), 400
             
-            on_time = data['on_time'] + ':00' if len(data['on_time']) == 5 else data['on_time']
-            off_time = data['off_time'] + ':00' if len(data['off_time']) == 5 else data['off_time']
+            on_time = str(data['on_time'])
+            off_time = str(data['off_time'])
+            morning_time = str(data.get('morning_time', '--:--'))
+            evening_time = str(data.get('evening_time', '--:--'))
             
             from datetime import datetime, timedelta
             ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
             timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
             cursor.execute(
-                "UPDATE schedule_settings SET on_time = %s, off_time = %s WHERE id = 1",
-                (on_time, off_time)
+                "UPDATE schedule_table SET on_time = %s, off_time = %s, morning_time = %s, evening_time = %s WHERE id = 1",
+                (on_time, off_time, morning_time, evening_time)
             )
             cursor.execute(
-                "INSERT INTO schedule_history (on_time, off_time, timestamp) VALUES (%s, %s, %s)",
-                (on_time, off_time, timestamp)
+                "INSERT INTO schedule_history (on_time, off_time, morning_time, evening_time, timestamp) VALUES (%s, %s, %s, %s, %s)",
+                (on_time, off_time, morning_time, evening_time, timestamp)
             )
             conn.commit()
             cursor.close()
