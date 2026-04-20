@@ -187,12 +187,6 @@ async function fetchSchedule() {
         if (data.off_time && data.off_time !== '--') {
             document.getElementById('off_time').value = data.off_time;
         }
-        if (data.morning_time && data.morning_time !== '--:--') {
-            document.getElementById('morning_time').value = data.morning_time;
-        }
-        if (data.evening_time && data.evening_time !== '--:--') {
-            document.getElementById('evening_time').value = data.evening_time;
-        }
     } catch (e) {
         console.error('Failed to fetch schedule:', e);
     }
@@ -201,8 +195,6 @@ async function fetchSchedule() {
 document.getElementById('save-schedule')?.addEventListener('click', async () => {
     const onTime = document.getElementById('on_time').value;
     const offTime = document.getElementById('off_time').value;
-    const morningTime = document.getElementById('morning_time').value;
-    const eveningTime = document.getElementById('evening_time').value;
     const btn = document.getElementById('save-schedule');
     const originalText = btn.textContent;
     btn.textContent = 'Saving...';
@@ -216,9 +208,7 @@ document.getElementById('save-schedule')?.addEventListener('click', async () => 
             },
             body: JSON.stringify({ 
                 on_time: onTime, 
-                off_time: offTime,
-                morning_time: morningTime,
-                evening_time: eveningTime
+                off_time: offTime
             })
         });
         

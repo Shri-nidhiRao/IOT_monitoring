@@ -295,25 +295,16 @@ def schedule_data():
     if conn:
         cursor = conn.cursor(dictionary=True)
         if request.method == 'GET':
-            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
+            cursor.execute("SELECT on_time, off_time FROM schedule_table WHERE id = 1")
             result = cursor.fetchone()
             cursor.close()
             conn.close()
             if result:
                 on_time_str = str(result['on_time']) if result['on_time'] is not None else '--'
                 off_time_str = str(result['off_time']) if result['off_time'] is not None else '--'
-                morning_time_str = str(result['morning_time']) if result['morning_time'] is not None else '--:--'
-                evening_time_str = str(result['evening_time']) if result['evening_time'] is not None else '--:--'
-                
-                # Try formatting morning/evening time for display if they contain seconds like HH:MM:SS
-                if morning_time_str.count(':') == 2:
-                    morning_time_str = ":".join(morning_time_str.split(':')[:2])
-                if evening_time_str.count(':') == 2:
-                    evening_time_str = ":".join(evening_time_str.split(':')[:2])
-
-                return jsonify({'on_time': on_time_str, 'off_time': off_time_str, 'morning_time': morning_time_str, 'evening_time': evening_time_str})
+                return jsonify({'on_time': on_time_str, 'off_time': off_time_str})
             else:
-                return jsonify({'on_time': '--', 'off_time': '--', 'morning_time': '--:--', 'evening_time': '--:--'})
+                return jsonify({'on_time': '--', 'off_time': '--'})
 
         elif request.method == 'POST':
             data = request.json
@@ -322,20 +313,18 @@ def schedule_data():
             
             on_time = str(data['on_time'])
             off_time = str(data['off_time'])
-            morning_time = str(data.get('morning_time', '--:--'))
-            evening_time = str(data.get('evening_time', '--:--'))
             
             from datetime import datetime, timedelta
             ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
             timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
             cursor.execute(
-                "UPDATE schedule_table SET on_time = %s, off_time = %s, morning_time = %s, evening_time = %s WHERE id = 1",
-                (on_time, off_time, morning_time, evening_time)
+                "UPDATE schedule_table SET on_time = %s, off_time = %s WHERE id = 1",
+                (on_time, off_time)
             )
             cursor.execute(
                 "INSERT INTO schedule_history (on_time, off_time, morning_time, evening_time, timestamp) VALUES (%s, %s, %s, %s, %s)",
-                (on_time, off_time, morning_time, evening_time, timestamp)
+                (on_time, off_time, '--:--', '--:--', timestamp)
             )
             conn.commit()
             cursor.close()
