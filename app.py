@@ -120,29 +120,35 @@ def index():
 def update_data():
     try:
         if request.method == 'GET':
-            try:
-                # Handle ThingSpeak Style GET Request from the hardware
-                device_id = str(request.args.get('api_key', 'Unknown_Auth'))
-                device_name = 'ThingSpeak_Node'
-                pres = float(request.args.get('field1', 0.0))
-                temp = float(request.args.get('field2', 0.0))
-                
-                # Math conversion: field3 sending 11.30 -> "11:30"
-                m_float = float(request.args.get('field3', 0.0))
-                e_float = float(request.args.get('field4', 0.0))
-                morning_time = f"{int(m_float):02d}:{round((m_float % 1) * 100):02d}"
-                evening_time = f"{int(e_float):02d}:{round((e_float % 1) * 100):02d}"
-                
-                on_time = str(request.args.get('field5', '0.0'))
-                off_time = str(request.args.get('field6', '0.0'))
-                
-                limitA = False
-                limitB = False
-                status_val = 'OK'
-                motor_status = 'Unknown'
-                timestamp = None
-            except ValueError:
-                return jsonify({'status': 'error', 'message': 'Invalid query parameters'}), 400
+            def safe_float(val, default=0.0):
+                try:
+                    return float(val) if (val and str(val).strip() != "") else default
+                except ValueError:
+                    return default
+
+            # Handle ThingSpeak Style GET Request from the hardware
+            device_id = str(request.args.get('api_key', 'Unknown_Auth'))
+            device_name = 'ThingSpeak_Node'
+            pres = safe_float(request.args.get('field1', 0.0))
+            temp = safe_float(request.args.get('field2', 0.0))
+            
+            # Math conversion: field3 sending 11.30 -> "11:30"
+            m_float = safe_float(request.args.get('field3', 0.0))
+            e_float = safe_float(request.args.get('field4', 0.0))
+            morning_time = f"{int(m_float):02d}:{round((m_float % 1) * 100):02d}"
+            evening_time = f"{int(e_float):02d}:{round((e_float % 1) * 100):02d}"
+            
+            # Build SS:MS formatting for on/off durations
+            on_f = safe_float(request.args.get('field5', 0.0))
+            off_f = safe_float(request.args.get('field6', 0.0))
+            on_time = f"{int(on_f):02d}:{int(round((on_f % 1) * 1000)):03d}"
+            off_time = f"{int(off_f):02d}:{int(round((off_f % 1) * 1000)):03d}"
+            
+            limitA = False
+            limitB = False
+            status_val = 'OK'
+            motor_status = 'Unknown'
+            timestamp = None
         else:
             data = request.json
             if not data:
