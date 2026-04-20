@@ -133,7 +133,7 @@ def update_data():
 
             # Handle ThingSpeak Style GET Request from the hardware
             device_id = str(request.args.get('api_key', 'Unknown_Auth'))
-            device_name = 'ThingSpeak_Node'
+            device_name = str(request.args.get('device_name', 'ThingSpeak_Node'))
             pres = safe_float(request.args.get('field1', 0.0))
             temp = safe_float(request.args.get('field2', 0.0))
             
