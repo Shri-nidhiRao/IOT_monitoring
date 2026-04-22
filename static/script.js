@@ -218,7 +218,8 @@ document.getElementById('save-schedule')?.addEventListener('click', async () => 
             setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
             updateScheduleHistory();
         } else {
-            console.error('Failed to save schedule');
+            const errorDetails = await response.text();
+            console.error('Failed to save schedule. Server responded with:', errorDetails);
             btn.textContent = 'Error';
             setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
         }
@@ -271,8 +272,8 @@ document.querySelectorAll('.sidebar a').forEach(link => {
 
 initCharts();
 fetchSchedule();
-setInterval(updateLatest, 1000);
-setInterval(updateHistory, 5000);
-setInterval(updateLogs, 10000);
+setInterval(updateLatest, 3000);
+setInterval(updateHistory, 15000);
+setInterval(updateLogs, 30000);
 updateLatest();
 
