@@ -196,7 +196,7 @@ document.getElementById('save-schedule')?.addEventListener('click', async () => 
     const eveningTime = document.getElementById('evening_time').value;
     const btn = document.getElementById('save-schedule');
     const originalText = btn.textContent;
-    btn.textContent = 'Saving...';
+    btn.textContent = 'Submitting...';
     btn.disabled = true;
 
     try {
@@ -214,8 +214,9 @@ document.getElementById('save-schedule')?.addEventListener('click', async () => 
         });
         
         if (response.ok) {
-            btn.textContent = 'Saved!';
+            btn.textContent = 'Submitted!';
             setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+            updateScheduleHistory();
         } else {
             console.error('Failed to save schedule');
             btn.textContent = 'Error';
