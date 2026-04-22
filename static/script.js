@@ -101,13 +101,6 @@ async function updateLatest() {
             document.getElementById('disp-morning-time').textContent = data.morning_time || '--:--';
             document.getElementById('disp-evening-time').textContent = data.evening_time || '--:--';
             document.getElementById('disp-motor-status').textContent = data.motor_status || 'Unknown';
-            
-            const limitAEl = document.getElementById('limitA');
-            const limitBEl = document.getElementById('limitB');
-            limitAEl.textContent = data.limit_switch_A ? 'ON' : 'OFF';
-            limitBEl.textContent = data.limit_switch_B ? 'ON' : 'OFF';
-            limitAEl.className = data.limit_switch_A ? 'metric-value on' : 'metric-value off';
-            limitBEl.className = data.limit_switch_B ? 'metric-value on' : 'metric-value off';
 
             const tempStatus = document.getElementById('temp-status');
             const pressureStatus = document.getElementById('pressure-status');
@@ -160,8 +153,6 @@ async function updateLogs() {
                 <td>${row.device_name || 'Unknown'}</td>
                 <td>${row.temperature.toFixed(1)}</td>
                 <td>${row.pressure.toFixed(1)}</td>
-                <td>${row.limit_switch_A ? 'ON' : 'OFF'}</td>
-                <td>${row.limit_switch_B ? 'ON' : 'OFF'}</td>
                 <td>${row.on_time || '--'}</td>
                 <td>${row.off_time || '--'}</td>
                 <td>${row.morning_time || '--:--'}</td>
