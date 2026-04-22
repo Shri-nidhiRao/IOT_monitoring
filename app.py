@@ -328,9 +328,21 @@ def schedule_data():
                 off_time_str = str(result['off_time']) if result['off_time'] is not None else '--'
                 morning_time_str = str(result['morning_time']) if result['morning_time'] is not None else '--:--'
                 evening_time_str = str(result['evening_time']) if result['evening_time'] is not None else '--:--'
-                return jsonify({'on_time': on_time_str, 'off_time': off_time_str, 'morning_time': morning_time_str, 'evening_time': evening_time_str})
+                return jsonify({
+                    'on_time': on_time_str, 
+                    'off_time': off_time_str, 
+                    'morning_time': morning_time_str, 
+                    'evening_time': evening_time_str,
+                    'field5': on_time_str,
+                    'field6': off_time_str,
+                    'field3': morning_time_str,
+                    'field4': evening_time_str
+                })
             else:
-                return jsonify({'on_time': '--', 'off_time': '--', 'morning_time': '--:--', 'evening_time': '--:--'})
+                return jsonify({
+                    'on_time': '--', 'off_time': '--', 'morning_time': '--:--', 'evening_time': '--:--',
+                    'field5': '--', 'field6': '--', 'field3': '--:--', 'field4': '--:--'
+                })
 
         elif request.method == 'POST':
             data = request.json
