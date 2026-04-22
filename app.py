@@ -94,6 +94,21 @@ def init_db():
                 )
             """)
             
+            # Safely forcefully upgrade any older schemas to include the new columns and format.
+            for tbl in ['schedule_table', 'schedule_history']:
+                try:
+                    cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN morning_time VARCHAR(50);")
+                except Error: pass
+                try:
+                    cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN evening_time VARCHAR(50);")
+                except Error: pass
+                try:
+                    cursor.execute(f"ALTER TABLE {tbl} MODIFY COLUMN on_time VARCHAR(50);")
+                except Error: pass
+                try:
+                    cursor.execute(f"ALTER TABLE {tbl} MODIFY COLUMN off_time VARCHAR(50);")
+                except Error: pass
+            
             # Seed default schedule if empty
             cursor.execute("SELECT COUNT(*) FROM schedule_table WHERE id = 1")
             (count,) = cursor.fetchone()
@@ -331,18 +346,22 @@ def schedule_data():
             ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
             timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
-            cursor.execute(
-                "UPDATE schedule_table SET on_time = %s, off_time = %s, morning_time = %s, evening_time = %s WHERE id = 1",
-                (on_time, off_time, morning_time, evening_time)
-            )
-            cursor.execute(
-                "INSERT INTO schedule_history (on_time, off_time, morning_time, evening_time, timestamp) VALUES (%s, %s, %s, %s, %s)",
-                (on_time, off_time, morning_time, evening_time, timestamp)
-            )
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return jsonify({'status': 'success'})
+            try:
+                cursor.execute(
+                    "UPDATE schedule_table SET on_time = %s, off_time = %s, morning_time = %s, evening_time = %s WHERE id = 1",
+                    (on_time, off_time, morning_time, evening_time)
+                )
+                cursor.execute(
+                    "INSERT INTO schedule_history (on_time, off_time, morning_time, evening_time, timestamp) VALUES (%s, %s, %s, %s, %s)",
+                    (on_time, off_time, morning_time, evening_time, timestamp)
+                )
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'success'})
+            except Exception as e:
+                print(f"Schedule API Crash: {e}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
     return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
 
 @app.route('/schedule-history', methods=['GET'])
