@@ -332,16 +332,11 @@ def schedule_data():
                     'on_time': on_time_str, 
                     'off_time': off_time_str, 
                     'morning_time': morning_time_str, 
-                    'evening_time': evening_time_str,
-                    'field5': on_time_str,
-                    'field6': off_time_str,
-                    'field3': morning_time_str,
-                    'field4': evening_time_str
+                    'evening_time': evening_time_str
                 })
             else:
                 return jsonify({
-                    'on_time': '--', 'off_time': '--', 'morning_time': '--:--', 'evening_time': '--:--',
-                    'field5': '--', 'field6': '--', 'field3': '--:--', 'field4': '--:--'
+                    'on_time': '--', 'off_time': '--', 'morning_time': '--:--', 'evening_time': '--:--'
                 })
 
         elif request.method == 'POST':
