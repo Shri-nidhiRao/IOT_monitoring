@@ -209,23 +209,74 @@ def update_data():
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
             cursor.execute(query, (device_id, device_name, temp, pres, limitA, limitB, on_time, off_time, morning_time, evening_time, motor_status, timestamp))
+            
+            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
+            schedule_row = cursor.fetchone()
+
             conn.commit()
             cursor.close()
             conn.close()
+
+            if schedule_row:
+                return jsonify({
+                    'status': 'success',
+                    'on_time': str(schedule_row[0]) if schedule_row[0] is not None else '--',
+                    'off_time': str(schedule_row[1]) if schedule_row[1] is not None else '--',
+                    'morning_time': str(schedule_row[2]) if schedule_row[2] is not None else '--:--',
+                    'evening_time': str(schedule_row[3]) if schedule_row[3] is not None else '--:--'
+                })
+
             return jsonify({'status': 'success'})
         else:
             return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+def format_seconds_ms(val_str):
+    if not val_str or val_str == '--': return '--'
+    try:
+        f = float(val_str)
+        return f"{int(f):02d}:{int(round((f % 1) * 1000)):03d}"
+    except ValueError:
+        pass
+    val_str = str(val_str).strip()
+    parts = val_str.split(':')
+    if len(parts) == 3:
+        try:
+            return f"{int(parts[2]):02d}:000"
+        except: pass
+    if len(parts) == 2:
+        try:
+            return f"{int(parts[0]):02d}:{int(parts[1]):03d}"
+        except: pass
+    return val_str
+
+def format_min_sec(val_str):
+    if not val_str or val_str in ('--', '--:--'): return '--:--'
+    try:
+        f = float(val_str)
+        return f"{int(f):02d}:{int(round((f % 1) * 100)):02d}"
+    except ValueError:
+        pass
+    parts = str(val_str).split(':')
+    if len(parts) >= 2:
+        try:
+            return f"{int(parts[0]):02d}:{int(parts[1][:2]):02d}"
+        except: pass
+    return str(val_str)
+
 def format_history_results(results):
     for r in results:
         if r.get('timestamp'):
             r['timestamp'] = r['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
         if 'on_time' in r and r['on_time'] is not None:
-            r['on_time'] = str(r['on_time'])
+            r['on_time'] = format_seconds_ms(r['on_time'])
         if 'off_time' in r and r['off_time'] is not None:
-            r['off_time'] = str(r['off_time'])
+            r['off_time'] = format_seconds_ms(r['off_time'])
+        if 'morning_time' in r and r['morning_time'] is not None:
+            r['morning_time'] = format_min_sec(r['morning_time'])
+        if 'evening_time' in r and r['evening_time'] is not None:
+            r['evening_time'] = format_min_sec(r['evening_time'])
     return results
 
 def format_latest_result(result):
@@ -233,9 +284,13 @@ def format_latest_result(result):
         if result.get('timestamp'):
             result['timestamp'] = result['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
         if 'on_time' in result and result['on_time'] is not None:
-            result['on_time'] = str(result['on_time'])
+            result['on_time'] = format_seconds_ms(result['on_time'])
         if 'off_time' in result and result['off_time'] is not None:
-            result['off_time'] = str(result['off_time'])
+            result['off_time'] = format_seconds_ms(result['off_time'])
+        if 'morning_time' in result and result['morning_time'] is not None:
+            result['morning_time'] = format_min_sec(result['morning_time'])
+        if 'evening_time' in result and result['evening_time'] is not None:
+            result['evening_time'] = format_min_sec(result['evening_time'])
     return result
 
 @app.route('/latest', methods=['GET'])
