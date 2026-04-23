@@ -4,29 +4,25 @@
 #include <math.h>
 #include <EEPROM.h>
 #include <WiFi.h>
+#include <esp_now.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>  // REQUIRED: Install "ArduinoJson" from Arduino Library Manager
-#include "max6675.h"
+#include <ArduinoJson.h>
 
 // ================= WIFI =================
 const char* ssid = "Realme";
 const char* password = "34567890";
 
-// ================= CUSTOM BACKEND =================
-// REPLACE THIS with your Render application URL or Local IP
-const char* serverUrl = "http://your-render-app.onrender.com"; 
+// ================= API =================
+const char* postServer = "https://iot-monitoring-8nc3.onrender.com/update";
+const char* getServer  = "https://iot-monitoring-8nc3.onrender.com/schedule";
 
-// ================= PRESSURE SENSOR =================
-#define PRESSURE_PIN 34
-float resistor = 180.0;
-float vRef = 3.3;
-float adcMax = 4095.0;
+unsigned long lastSync = 0;
 
-// ================= MAX6675 =================
-int thermoDO = 12;
-int thermoCS = 13;
-int thermoCLK = 14;
-MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
+// ================= SYNC CONTROL =================
+enum ChangeSource { FROM_NONE, FROM_API, FROM_HARDWARE };
+ChangeSource lastSource = FROM_NONE;
+unsigned long lastChangeTime = 0;
+#define LOCK_TIME 5000   // 5 sec protection
 
 // ================= FUNCTION DECLARATIONS =================
 void runMotorLogic();
@@ -36,14 +32,21 @@ void displaySetOn();
 void displaySetOff();
 void displayMorning();
 void displayEvening();
-void syncWithBackend(float pressure, float temperature);
+
+// ================= ESP-NOW =================
+typedef struct {
+  float pressure;
+  float temperature;
+} SensorData;
+
+SensorData receivedData;
 
 // ================= EEPROM =================
 #define EEPROM_SIZE 20
 #define ADDR_ON_TIME  0
 #define ADDR_OFF_TIME 8
-#define ADDR_MORNING   12
-#define ADDR_EVENING   16
+#define ADDR_MORNING  12
+#define ADDR_EVENING  16
 
 void saveFloat(int addr, float value){
   EEPROM.writeBytes(addr, (byte*)&value, sizeof(float));
@@ -65,17 +68,11 @@ float readFloat(int addr){
 LiquidCrystal_I2C lcd(0x27,16,2);
 RTC_DS1307 rtc;
 
-#define SET_RTC_TIME true
-
-// ================= MOTOR =================
+// ================= PINS =================
 #define RELAY_CW 18
 #define RELAY_CCW 4
-
-// ================= LIMIT SWITCHES =================
 #define SWITCH1 33
 #define SWITCH2 32
-
-// ================= BUTTONS =================
 #define BTN_UP 16
 #define BTN_DOWN 17
 #define BTN_SET 5
@@ -84,14 +81,13 @@ RTC_DS1307 rtc;
 float onTime = 5.0;
 float offTime = 10.0;
 
-bool decimalMode = false;
-
 int morningHour=11;
 int morningMin=0;
 
 int eveningHour=18;
 int eveningMin=0;
 
+bool decimalMode=false;
 bool editMinute=false;
 int menuPage=0;
 
@@ -107,225 +103,220 @@ CCW_MODE
 
 MotorState currentState=WAIT_MODE;
 
-// ================= TIMER =================
-unsigned long lastSyncTime = 0;
+// ================= ESP-NOW =================
+void onReceive(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len) {
+  memcpy(&receivedData, incomingData, sizeof(receivedData));
+}
+
+void sendToAPI(){
+
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  HTTPClient http;
+  http.begin(postServer);
+  http.addHeader("Content-Type", "application/json");
+
+  // ===== FORMAT TIMES =====
+  char onBuf[6];
+  char offBuf[6];
+  sprintf(onBuf, "%02d:%02d", (int)onTime, (int)(round((onTime - (int)onTime) * 100)));
+  sprintf(offBuf, "%02d:%02d", (int)offTime, (int)(round((offTime - (int)offTime) * 100)));
+  String onStr = String(onBuf);
+  String offStr = String(offBuf);
+
+  String morningStr = String(morningHour) + ":" + String(morningMin);
+  String eveningStr = String(eveningHour) + ":" + String(eveningMin);
+
+  // ===== MOTOR STATUS =====
+  String motorStatus = "WAIT";
+  if (currentState == CW_MODE) motorStatus = "CW";
+  else if (currentState == CCW_MODE) motorStatus = "CCW";
+
+  // ===== JSON =====
+  String json = "{";
+  json += "\"mainid\":\"ESP32_001\",";
+  json += "\"Device_name\":\"SolarTracker\",";
+  json += "\"temperature\":" + String(receivedData.temperature,2) + ",";
+  json += "\"pressure\":" + String(receivedData.pressure,2) + ",";
+  json += "\"on_time\":\"" + onStr + "\",";
+  json += "\"off_time\":\"" + offStr + "\",";
+  json += "\"morning_time\":\"" + morningStr + "\",";
+  json += "\"evening_time\":\"" + eveningStr + "\",";
+  json += "\"motor_status\":\"" + motorStatus + "\"";
+  json += "}";
+
+  int code = http.POST(json);
+
+  Serial.print("POST Response: ");
+  Serial.println(code);
+
+  http.end();
+}
+
+// ================= FETCH FROM API =================
+void fetchFromAPI(){
+
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  // 🔒 Prevent overwrite if recent hardware change
+  if(millis() - lastChangeTime < LOCK_TIME) return;
+
+  HTTPClient http;
+  http.begin(getServer);
+
+  if(http.GET()==200){
+
+    StaticJsonDocument<256> doc;
+    if(!deserializeJson(doc, http.getString())){
+
+      String newOnStr = doc["on_time"] | "";
+      String newOffStr = doc["off_time"] | "";
+      
+      float newOn = onTime;
+      float newOff = offTime;
+
+      // Parse incoming SS:MM properly into float
+      if (newOnStr.length() > 0 && newOnStr != "--") {
+          int colonIdx = newOnStr.indexOf(':');
+          if (colonIdx != -1) {
+              float sec = newOnStr.substring(0, colonIdx).toFloat();
+              String msStr = newOnStr.substring(colonIdx + 1);
+              float ms = msStr.toFloat();
+              if(msStr.length() == 3) ms /= 1000.0;
+              else ms /= 100.0;
+              newOn = sec + ms;
+          } else {
+              newOn = newOnStr.toFloat();
+          }
+      }
+
+      if (newOffStr.length() > 0 && newOffStr != "--") {
+          int colonIdx = newOffStr.indexOf(':');
+          if (colonIdx != -1) {
+              float sec = newOffStr.substring(0, colonIdx).toFloat();
+              String msStr = newOffStr.substring(colonIdx + 1);
+              float ms = msStr.toFloat();
+              if(msStr.length() == 3) ms /= 1000.0;
+              else ms /= 100.0;
+              newOff = sec + ms;
+          } else {
+              newOff = newOffStr.toFloat();
+          }
+      }
+
+      String mStr = doc["morning_time"] | "";
+      String eStr = doc["evening_time"] | "";
+
+      int mh, mm, eh, em;
+
+      if(sscanf(mStr.c_str(), "%d:%d", &mh, &mm)==2){
+        if(mh!=morningHour || mm!=morningMin){
+          morningHour=mh;
+          morningMin=mm;
+          saveFloat(ADDR_MORNING, mh + mm/100.0);
+          lastSource = FROM_API;
+          lastChangeTime = millis();
+        }
+      }
+
+      if(sscanf(eStr.c_str(), "%d:%d", &eh, &em)==2){
+        if(eh!=eveningHour || em!=eveningMin){
+          eveningHour=eh;
+          eveningMin=em;
+          saveFloat(ADDR_EVENING, eh + em/100.0);
+          lastSource = FROM_API;
+          lastChangeTime = millis();
+        }
+      }
+
+      if(newOn != onTime){
+        onTime = newOn;
+        saveFloat(ADDR_ON_TIME,onTime);
+        lastSource = FROM_API;
+        lastChangeTime = millis();
+      }
+
+      if(newOff != offTime){
+        offTime = newOff;
+        saveFloat(ADDR_OFF_TIME,offTime);
+        lastSource = FROM_API;
+        lastChangeTime = millis();
+      }
+    }
+  }
+
+  http.end();
+}
 
 // ================= SETUP =================
 void setup(){
 
-  Serial.begin(115200);
+Serial.begin(115200);
 
-  Wire.begin(LCD_SDA,LCD_SCL);
-  Wire1.begin(RTC_SDA,RTC_SCL);
+Wire.begin(LCD_SDA,LCD_SCL);
+Wire1.begin(RTC_SDA,RTC_SCL);
 
-  lcd.init();
-  lcd.backlight();
+lcd.init();
+lcd.backlight();
 
-  EEPROM.begin(EEPROM_SIZE);
+EEPROM.begin(EEPROM_SIZE);
 
-  onTime = readFloat(ADDR_ON_TIME);
-  offTime = readFloat(ADDR_OFF_TIME);
-
-  float morningSaved = readFloat(ADDR_MORNING);
-  float eveningSaved = readFloat(ADDR_EVENING);
-
-  if(!isnan(morningSaved) && morningSaved > 0 && morningSaved < 24){
-    morningHour = (int)morningSaved;
-    morningMin  = (morningSaved - morningHour) * 100;
-  }
-
-  if(!isnan(eveningSaved) && eveningSaved > 0 && eveningSaved < 24){
-    eveningHour = (int)eveningSaved;
-    eveningMin  = (eveningSaved - eveningHour) * 100;
-  }
-
-  if(isnan(onTime) || onTime<=0 || onTime>100) onTime = 5.0;
-  if(isnan(offTime) || offTime<=0 || offTime>100) offTime = 10.0;
-
-  if(!rtc.begin(&Wire1)){
+// ===== RTC FIX =====
+if(!rtc.begin(&Wire1)){
   lcd.print("RTC ERROR!");
   while(1);
-  }
+}
 
-  if(SET_RTC_TIME){
-  rtc.adjust(DateTime(__DATE__, __TIME__));
-  }
+if(!rtc.isrunning()){
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+}
 
-  pinMode(RELAY_CW,OUTPUT);
-  pinMode(RELAY_CCW,OUTPUT);
+// ================= PINS =================
+pinMode(RELAY_CW,OUTPUT);
+pinMode(RELAY_CCW,OUTPUT);
+pinMode(SWITCH1,INPUT_PULLUP);
+pinMode(SWITCH2,INPUT_PULLUP);
+pinMode(BTN_UP,INPUT_PULLUP);
+pinMode(BTN_DOWN,INPUT_PULLUP);
+pinMode(BTN_SET,INPUT_PULLUP);
 
-  pinMode(SWITCH1,INPUT_PULLUP);
-  pinMode(SWITCH2,INPUT_PULLUP);
+digitalWrite(RELAY_CW,HIGH);
+digitalWrite(RELAY_CCW,HIGH);
 
-  pinMode(BTN_UP,INPUT_PULLUP);
-  pinMode(BTN_DOWN,INPUT_PULLUP);
-  pinMode(BTN_SET,INPUT_PULLUP);
+// ================= WIFI =================
+WiFi.mode(WIFI_STA);
+WiFi.begin(ssid, password);
 
-  digitalWrite(RELAY_CW,HIGH);
-  digitalWrite(RELAY_CCW,HIGH);
+while (WiFi.status() != WL_CONNECTED) delay(500);
 
-  // ===== ADC SETUP =====
-  analogReadResolution(12);
-  analogSetPinAttenuation(PRESSURE_PIN, ADC_11db);
+// ================= ESP-NOW =================
+esp_now_init();
+esp_now_register_recv_cb(onReceive);
 
-  // ===== WIFI =====
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
-
-  lcd.clear();
+lcd.clear();
 }
 
 // ================= LOOP =================
 void loop(){
 
-  handleButtons();
+handleButtons();
 
-  if(menuPage==0){
-    runMotorLogic();
-  }
-
-  // ===== TWO-WAY SYNC (EVERY 15 SECONDS) =====
-  if(millis() - lastSyncTime > 15000){
-
-    // Calculate PRESSURE
-    long sum = 0;
-    for(int i=0;i<10;i++){
-      sum += analogRead(PRESSURE_PIN);
-      delay(5);
-    }
-    float adcValue = sum/10.0;
-    float voltage = (adcValue/adcMax)*vRef;
-    float current_mA = (voltage/resistor)*1000.0;
-    float pressure = ((current_mA - 4.0)*250.0)/16.0;
-
-    if(pressure<0) pressure=0;
-    if(pressure>250) pressure=250;
-
-    // Calculate TEMPERATURE
-    float temperature = thermocouple.readCelsius();
-
-    Serial.print("Pressure: "); Serial.print(pressure);
-    Serial.print(" bar | Temp: "); Serial.println(temperature);
-
-    // Communicate with Custom Python Backend
-    syncWithBackend(pressure, temperature);
-
-    lastSyncTime = millis();
-  }
-
-  delay(50);
+if(menuPage==0){
+runMotorLogic();
 }
 
-// ================= TWO WAY SYNC FUNCTION =================
-void syncWithBackend(float pressure, float temperature){
-  if (WiFi.status() != WL_CONNECTED) {
-    return;
-  }
-
-  HTTPClient http;
-
-  // --------------------------------------------------------
-  // 1. FETCH SCHEDULE (GET /schedule)
-  // --------------------------------------------------------
-  String scheduleUrl = String(serverUrl) + "/schedule";
-  http.begin(scheduleUrl);
-  int httpCode = http.GET();
-  
-  if (httpCode == HTTP_CODE_OK) {
-    String payload = http.getString();
-    
-    StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, payload);
-    
-    if (!error) {
-      // Decode and apply updates if available
-      String newOnTimeStr = doc["on_time"] | "";
-      String newOffTimeStr = doc["off_time"] | "";
-      String newMorningStr = doc["morning_time"] | "";
-      String newEveningStr = doc["evening_time"] | "";
-
-      if(newOnTimeStr != "--" && newOnTimeStr.length() > 0) {
-         float incomingOnTime = newOnTimeStr.toFloat();
-         if(incomingOnTime > 0 && incomingOnTime != onTime) {
-            onTime = incomingOnTime;
-            saveFloat(ADDR_ON_TIME, onTime);
-         }
-      }
-
-      if(newOffTimeStr != "--" && newOffTimeStr.length() > 0) {
-         float incomingOffTime = newOffTimeStr.toFloat();
-         if(incomingOffTime > 0 && incomingOffTime != offTime) {
-            offTime = incomingOffTime;
-            saveFloat(ADDR_OFF_TIME, offTime);
-         }
-      }
-
-      // Parse HH:MM into Integers
-      if(newMorningStr != "--:--" && newMorningStr.length() >= 5) {
-        int inMHour = newMorningStr.substring(0,2).toInt();
-        int inMMin = newMorningStr.substring(3,5).toInt();
-        if(inMHour != morningHour || inMMin != morningMin){
-           morningHour = inMHour; morningMin = inMMin;
-           float val = morningHour + (morningMin/100.0);
-           saveFloat(ADDR_MORNING, val);
-        }
-      }
-
-      if(newEveningStr != "--:--" && newEveningStr.length() >= 5) {
-        int inEHour = newEveningStr.substring(0,2).toInt();
-        int inEMin = newEveningStr.substring(3,5).toInt();
-        if(inEHour != eveningHour || inEMin != eveningMin){
-           eveningHour = inEHour; eveningMin = inEMin;
-           float val = eveningHour + (eveningMin/100.0);
-           saveFloat(ADDR_EVENING, val);
-        }
-      }
-    }
-  }
-  http.end();
-
-
-  // --------------------------------------------------------
-  // 2. SEND TELEMETRY (POST /update)
-  // --------------------------------------------------------
-  String updateUrl = String(serverUrl) + "/update";
-  http.begin(updateUrl);
-  http.addHeader("Content-Type", "application/json");
-
-  // Construct formatted Strings
-  char mornBuf[6];
-  sprintf(mornBuf, "%02d:%02d", morningHour, morningMin);
-  char eveBuf[6];
-  sprintf(eveBuf, "%02d:%02d", eveningHour, eveningMin);
-
-  String motStatus = "WAIT";
-  if(currentState == CW_MODE) motStatus = "CW";
-  if(currentState == CCW_MODE) motStatus = "CCW";
-
-  StaticJsonDocument<512> postDoc;
-  postDoc["mainid"] = "ESP32_Device_1";
-  postDoc["device_name"] = "Main Controller";
-  postDoc["temperature"] = temperature;
-  postDoc["pressure"] = pressure;
-  postDoc["status"] = "OK";
-  postDoc["limitA"] = !digitalRead(SWITCH1); // false if LOW based on INPUT_PULLUP logic
-  postDoc["limitB"] = !digitalRead(SWITCH2);
-  postDoc["on_time"] = String(onTime);
-  postDoc["off_time"] = String(offTime);
-  postDoc["morning_time"] = String(mornBuf);
-  postDoc["evening_time"] = String(eveBuf);
-  postDoc["motor_status"] = motStatus;
-
-  String requestBody;
-  serializeJson(postDoc, requestBody);
-
-  http.POST(requestBody);
-  http.end();
+// ===== SYNC =====
+if (millis() - lastSync > 15000) {
+  // Call fetch first, then send. That way, any changes fetched from API
+  // are immediately pushed back in the next send To confirm!
+  fetchFromAPI();
+  sendToAPI();
+  lastSync = millis();
 }
 
-// ================= MOTOR LOGIC =================
+delay(50);
+}
+
 void runMotorLogic(){
 
 static bool waitLock = false;
@@ -361,9 +352,6 @@ if(currentState == CCW_MODE){
         waitLock = true;
 
         digitalWrite(RELAY_CCW, HIGH);
-
-        lastSW1 = sw1;
-        lastSW2 = sw2;
         displayMain(now);
         return;
     }
@@ -401,7 +389,6 @@ case WAIT_MODE:
     break;
 
 case CW_MODE:
-
     if(motorOn){
         if(millis() - previousMillis >= (unsigned long)(onTime * 1000)){
             motorOn = false;
@@ -467,7 +454,6 @@ lcd.clear();
 }
 }
 
-// ON TIME
 if(menuPage==1){
 if(digitalRead(BTN_UP)==LOW){
 if(decimalMode) onTime+=0.1;
@@ -484,7 +470,6 @@ delay(200);
 displaySetOn();
 }
 
-// OFF TIME
 if(menuPage==2){
 if(digitalRead(BTN_UP)==LOW){
 if(decimalMode) offTime+=0.1;
@@ -502,7 +487,6 @@ displaySetOff();
 }
 
 if(menuPage==3){
-
 if(digitalRead(BTN_UP)==LOW){
 if(!editMinute) morningHour=(morningHour+1)%24;
 else morningMin=(morningMin+1)%60;
@@ -527,7 +511,6 @@ displayMorning();
 }
 
 if(menuPage==4){
-
 if(digitalRead(BTN_UP)==LOW){
 if(!editMinute) eveningHour=(eveningHour+1)%24;
 else eveningMin=(eveningMin+1)%60;
@@ -551,7 +534,6 @@ delay(200);
 displayEvening();
 }
 }
-
 
 // ================= DISPLAY =================
 void displayMain(DateTime now){

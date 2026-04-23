@@ -158,11 +158,11 @@ def update_data():
             morning_time = f"{int(m_float):02d}:{round((m_float % 1) * 100):02d}"
             evening_time = f"{int(e_float):02d}:{round((e_float % 1) * 100):02d}"
             
-            # Build SS:MS formatting for on/off durations
+            # Build SS:MM formatting for on/off durations (2 digits sec, 2 digits ms)
             on_f = safe_float(request.args.get('field5', 0.0))
             off_f = safe_float(request.args.get('field6', 0.0))
-            on_time = f"{int(on_f):02d}:{int(round((on_f % 1) * 1000)):03d}"
-            off_time = f"{int(off_f):02d}:{int(round((off_f % 1) * 1000)):03d}"
+            on_time = f"{int(on_f):02d}:{int(round((on_f % 1) * 100)):02d}"
+            off_time = f"{int(off_f):02d}:{int(round((off_f % 1) * 100)):02d}"
             
             limitA = False
             limitB = False
@@ -236,18 +236,24 @@ def format_seconds_ms(val_str):
     if not val_str or val_str == '--': return '--'
     try:
         f = float(val_str)
-        return f"{int(f):02d}:{int(round((f % 1) * 1000)):03d}"
+        return f"{int(f):02d}:{int(round((f % 1) * 100)):02d}"
     except ValueError:
         pass
     val_str = str(val_str).strip()
     parts = val_str.split(':')
     if len(parts) == 3:
         try:
-            return f"{int(parts[2]):02d}:000"
+            return f"{int(parts[2]):02d}:00"
         except: pass
     if len(parts) == 2:
         try:
-            return f"{int(parts[0]):02d}:{int(parts[1]):03d}"
+            sec = int(parts[0])
+            ms_str = parts[1]
+            if len(ms_str) >= 3:
+                ms = int(ms_str[:2])
+            else:
+                ms = int(ms_str)
+            return f"{sec:02d}:{ms:02d}"
         except: pass
     return val_str
 
