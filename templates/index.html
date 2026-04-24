@@ -1,13 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KVB Energies - IoT Device Monitoring</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="/static/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
 </head>
+
 <body>
     <div class="sidebar">
         <div class="brand">
@@ -45,12 +48,12 @@
                 <div class="metric-card" data-metric="on-time">
                     <div class="metric-icon">ON Time</div>
                     <div class="metric-value" id="disp-on-time">--</div>
-                    <div class="metric-label">Device ON Time (sec:ms)</div>
+                    <div class="metric-label">Device ON Time (sec.ms)</div>
                 </div>
                 <div class="metric-card" data-metric="off-time">
                     <div class="metric-icon">OFF Time</div>
                     <div class="metric-value" id="disp-off-time">--</div>
-                    <div class="metric-label">Device OFF Time (sec:ms)</div>
+                    <div class="metric-label">Device OFF Time (sec.ms)</div>
                 </div>
                 <div class="metric-card" data-metric="morning-time">
                     <div class="metric-icon">Morning</div>
@@ -78,11 +81,11 @@
                     <h3>Device Schedule</h3>
                     <div class="schedule-form">
                         <div class="input-group">
-                            <label for="on_time">ON Time (SS:MM)</label>
+                            <label for="on_time">ON Time (SS.MM)</label>
                             <input type="text" id="on_time" placeholder="SS:MM">
                         </div>
                         <div class="input-group">
-                            <label for="off_time">OFF Time (SS:MM)</label>
+                            <label for="off_time">OFF Time (SS.MM)</label>
                             <input type="text" id="off_time" placeholder="SS:MM">
                         </div>
                         <div class="input-group">
@@ -160,4 +163,5 @@
     </div>
     <script src="/static/script.js?v=4"></script>
 </body>
+
 </html>
