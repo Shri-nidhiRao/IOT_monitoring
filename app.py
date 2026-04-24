@@ -158,11 +158,11 @@ def update_data():
             morning_time = f"{int(m_float):02d}:{round((m_float % 1) * 100):02d}"
             evening_time = f"{int(e_float):02d}:{round((e_float % 1) * 100):02d}"
             
-            # Build SS:MM formatting for on/off durations (2 digits sec, 1 digits ms)
+            # Build SS.MM formatting for on/off durations (2 digits sec, 1 digits ms)
             on_f = safe_float(request.args.get('field5', 0.0))
             off_f = safe_float(request.args.get('field6', 0.0))
-            on_time = f"{int(on_f):02d}:{int(round((on_f % 1) * 100)):01d}"
-            off_time = f"{int(off_f):02d}:{int(round((off_f % 1) * 100)):01d}"
+            on_time = f"{int(on_f):02d}:{int(round((on_f % 1) * 10)):01d}"
+            off_time = f"{int(off_f):02d}:{int(round((off_f % 1) * 10)):01d}"
             
             limitA = False
             limitB = False
