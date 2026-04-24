@@ -163,6 +163,7 @@ def update_data():
             off_f = safe_float(request.args.get('field6', 0.0))
             on_time = f"{int(on_f):02d}:{int((on_f % 1) * 10)}"
             off_time = f"{int(off_f):02d}:{int((off_f % 1) * 10)}" 
+           
             
             limitA = False
             limitB = False
@@ -236,7 +237,7 @@ def format_seconds_ms(val_str):
     if not val_str or val_str == '--': return '--'
     try:
         f = float(val_str)
-        return f"{int(f):02d}:{int((f % 1) * 10):01d}"
+        return f"{int(f):02d}:{int(round((f % 1) * 100)):02d}"
     except ValueError:
         pass
     val_str = str(val_str).strip()
