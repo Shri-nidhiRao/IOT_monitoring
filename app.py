@@ -1,16 +1,13 @@
 import os
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for, flash
+from flask import Flask, request, jsonify, render_template
 import mysql.connector
 from mysql.connector import Error
-from werkzeug.security import generate_password_hash, check_password_hash
-from functools import wraps
 from datetime import datetime, timedelta
 
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'iot_super_secret_key_kvb')
 
 # ========== MIDDLEWARE TO ALLOW HTTP FOR IOT DEVICES ==========
 @app.before_request
@@ -112,16 +109,6 @@ def init_db():
                     evening_time VARCHAR(50),
                     motor_status VARCHAR(50),
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    name VARCHAR(100),
-                    email VARCHAR(100) UNIQUE,
-                    phone VARCHAR(20) UNIQUE,
-                    password VARCHAR(255) NOT NULL
                 )
             """)
             
@@ -288,80 +275,7 @@ def schedule_data_http():
 # ========== YOUR EXISTING ROUTES (KEEP AS IS) ==========
 @app.route('/')
 def index():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
     return render_template('index.html')
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if 'user_id' in session:
-        return redirect(url_for('index'))
-        
-    error = None
-    if request.method == 'POST':
-        identifier = request.form.get('identifier')
-        password = request.form.get('password')
-        
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM users WHERE email = %s OR phone = %s", (identifier, identifier))
-            user = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            
-            if user and check_password_hash(user['password'], password):
-                session['user_id'] = user['id']
-                session['name'] = user['name']
-                return redirect(url_for('index'))
-            else:
-                error = 'Invalid email/phone or password.'
-        else:
-            error = 'Database connection error.'
-            
-    return render_template('login.html', error=error)
-
-@app.route('/signup', methods=['GET', 'POST'])
-def signup():
-    if 'user_id' in session:
-        return redirect(url_for('index'))
-        
-    error = None
-    if request.method == 'POST':
-        name = request.form.get('name')
-        email = request.form.get('email')
-        phone = request.form.get('phone')
-        password = request.form.get('password')
-        
-        if not name or not password or (not email and not phone):
-            error = 'Please fill required fields.'
-        else:
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM users WHERE email = %s OR phone = %s", (email, phone))
-                if cursor.fetchone():
-                    error = 'Email or phone already exists.'
-                else:
-                    hashed_pwd = generate_password_hash(password)
-                    try:
-                        cursor.execute("INSERT INTO users (name, email, phone, password) VALUES (%s, %s, %s, %s)",
-                                       (name, email, phone, hashed_pwd))
-                        conn.commit()
-                        return redirect(url_for('login'))
-                    except Exception as e:
-                        error = 'Registration failed.'
-                cursor.close()
-                conn.close()
-            else:
-                error = 'Database connection error.'
-                
-    return render_template('signup.html', error=error)
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
 
 # ========== YOUR ORIGINAL /update ENDPOINT (MODIFIED TOO) ==========
 @app.route('/update', methods=['GET', 'POST'])
