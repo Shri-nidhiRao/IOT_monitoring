@@ -1,17 +1,68 @@
 import os
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for, flash
 import mysql.connector
 from mysql.connector import Error
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
+from datetime import datetime, timedelta
 
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'iot_super_secret_key_kvb')
+
+# ========== MIDDLEWARE TO ALLOW HTTP FOR IOT DEVICES ==========
+@app.before_request
+def allow_http_for_iot():
+    """Allow HTTP requests from IoT devices (ESP32, SIM800L) while redirecting browsers to HTTPS"""
+    
+    # List of endpoints that should accept HTTP (your IoT endpoints)
+    iot_endpoints = ['/update', '/schedule', '/health', '/latest', '/history', '/update-http', '/schedule-http']
+    
+    # Check if this is an IoT endpoint
+    is_iot_endpoint = False
+    for endpoint in iot_endpoints:
+        if request.path.startswith(endpoint):
+            is_iot_endpoint = True
+            break
+    
+    # Check User-Agent for IoT devices
+    user_agent = request.headers.get('User-Agent', '').lower()
+    is_iot_device = any(device in user_agent for device in [
+        'esp32', 'esp8266', 'arduino', 'sim800', 'sim900', 
+        'thingspeak', 'httpclient', 'esp', 'micropython'
+    ])
+    
+    # Check for custom IoT header
+    is_iot_header = request.headers.get('X-IoT-Device', '').lower() == 'true'
+    
+    # Allow HTTP for IoT devices and endpoints
+    if is_iot_endpoint or is_iot_device or is_iot_header:
+        return None
+    
+    # For normal browsers, redirect to HTTPS on Render
+    if 'render.com' in request.host and not request.is_secure:
+        if request.method == 'OPTIONS':
+            return None
+        
+        https_url = 'https://' + request.host + request.full_path
+        return redirect(https_url, code=301)
+    
+    return None
+
+# ========== CORS HEADERS ==========
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-IoT-Device')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 DB_CONFIG = {
     'host': os.environ.get('DB_HOST', 'localhost'),
     'user': os.environ.get('DB_USER', 'root'),
-    'password': os.environ.get('DB_PASSWORD', ''),  # No hardcoded fallbacks for security!
+    'password': os.environ.get('DB_PASSWORD', ''),
     'database': os.environ.get('DB_NAME', 'iot_monitoring'),
     'port': int(os.environ.get('DB_PORT', 3306))
 }
@@ -29,19 +80,17 @@ def get_db_connection(include_db=True):
 
 def init_db():
     """Initialize database and table if not exists."""
-    # First try connecting with the database (safe for cloud providers like Aiven)
     conn = get_db_connection(include_db=True)
     db_name = DB_CONFIG.get('database', 'iot_monitoring')
     
     if not conn:
-        # Fallback for local hosting if database doesn't exist yet
         conn = get_db_connection(include_db=False)
         if conn:
             cursor = conn.cursor()
             try:
                 cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name};")
             except Error as e:
-                print(f"Skipping DB creation (might be managed cloud DB): {e}")
+                print(f"Skipping DB creation: {e}")
             conn.database = db_name
             cursor.close()
 
@@ -66,13 +115,21 @@ def init_db():
                 )
             """)
             
-            # Safely drop status from previously built tables
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100),
+                    email VARCHAR(100) UNIQUE,
+                    phone VARCHAR(20) UNIQUE,
+                    password VARCHAR(255) NOT NULL
+                )
+            """)
+            
             try:
                 cursor.execute("ALTER TABLE logs_table DROP COLUMN status;")
             except Error:
                 pass
             
-            # Create scheduling tables
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS schedule_table (
                     id INT PRIMARY KEY,
@@ -94,7 +151,6 @@ def init_db():
                 )
             """)
             
-            # Safely forcefully upgrade any older schemas to include the new columns and format.
             for tbl in ['schedule_table', 'schedule_history']:
                 try:
                     cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN morning_time VARCHAR(50);")
@@ -109,7 +165,6 @@ def init_db():
                     cursor.execute(f"ALTER TABLE {tbl} MODIFY COLUMN off_time VARCHAR(50);")
                 except Error: pass
             
-            # Seed default schedule if empty
             cursor.execute("SELECT COUNT(*) FROM schedule_table WHERE id = 1")
             (count,) = cursor.fetchone()
             if count == 0:
@@ -125,17 +180,190 @@ def init_db():
     else:
         print("Failed to connect to DB for initialization.")
 
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
+# ========== TEST ENDPOINT FOR HTTP ==========
+@app.route('/test-http', methods=['GET'])
+def test_http():
+    """Test endpoint to verify HTTP is working"""
+    return jsonify({
+        'status': 'success',
+        'message': 'HTTP connection working!',
+        'protocol': request.scheme,
+        'user_agent': request.headers.get('User-Agent', 'Unknown'),
+        'esp32_ready': True
+    }), 200
 
+# ========== HTTP-ONLY ENDPOINTS FOR ESP32 ==========
+@app.route('/update-http', methods=['POST', 'GET'])
+def update_data_http():
+    """HTTP-only endpoint for ESP32 - no HTTPS redirect"""
+    try:
+        if request.method == 'GET':
+            # Handle ThingSpeak style GET
+            device_id = str(request.args.get('api_key', 'ESP32_001'))
+            device_name = str(request.args.get('device_name', 'SolarTracker_GSM'))
+            temp = float(request.args.get('field1', 0.0))
+            pres = float(request.args.get('field2', 0.0))
+            on_time = str(request.args.get('field3', '05:00'))
+            off_time = str(request.args.get('field4', '10:00'))
+            morning_time = str(request.args.get('field5', '08:00'))
+            evening_time = str(request.args.get('field6', '18:00'))
+            motor_status = str(request.args.get('field7', 'WAIT'))
+            limitA = False
+            limitB = False
+        else:
+            # Handle POST JSON
+            data = request.json
+            if not data:
+                return jsonify({'status': 'error', 'message': 'No JSON payload'}), 400
+            
+            device_id = str(data.get('mainid', 'ESP32_001'))
+            device_name = str(data.get('Device_name', 'SolarTracker_GSM'))
+            temp = float(data.get('temperature', 0.0))
+            pres = float(data.get('pressure', 0.0))
+            on_time = str(data.get('on_time', '05:00'))
+            off_time = str(data.get('off_time', '10:00'))
+            morning_time = str(data.get('morning_time', '08:00'))
+            evening_time = str(data.get('evening_time', '18:00'))
+            motor_status = str(data.get('motor_status', 'WAIT'))
+            limitA = False
+            limitB = False
+        
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            
+            ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
+            
+            query = """
+            INSERT INTO logs_table (device_id, device_name, temperature, pressure, limit_switch_A, limit_switch_B, 
+            on_time, off_time, morning_time, evening_time, motor_status, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(query, (device_id, device_name, temp, pres, limitA, limitB, 
+                                  on_time, off_time, morning_time, evening_time, motor_status, timestamp))
+            
+            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
+            schedule_row = cursor.fetchone()
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            if schedule_row:
+                return jsonify({
+                    'status': 'success',
+                    'on_time': str(schedule_row[0]) if schedule_row[0] else '10',
+                    'off_time': str(schedule_row[1]) if schedule_row[1] else '10',
+                    'morning_time': str(schedule_row[2]) if schedule_row[2] else '08:00',
+                    'evening_time': str(schedule_row[3]) if schedule_row[3] else '18:00'
+                })
+            
+            return jsonify({'status': 'success'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/schedule-http', methods=['GET'])
+def schedule_data_http():
+    """HTTP-only endpoint for ESP32 to get schedule"""
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if result:
+            return jsonify({
+                'on_time': str(result['on_time']) if result['on_time'] else '10',
+                'off_time': str(result['off_time']) if result['off_time'] else '10',
+                'morning_time': str(result['morning_time']) if result['morning_time'] else '08:00',
+                'evening_time': str(result['evening_time']) if result['evening_time'] else '18:00'
+            })
+    return jsonify({'on_time': '10', 'off_time': '10', 'morning_time': '08:00', 'evening_time': '18:00'})
+
+# ========== YOUR EXISTING ROUTES (KEEP AS IS) ==========
 @app.route('/')
 def index():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     return render_template('index.html')
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if 'user_id' in session:
+        return redirect(url_for('index'))
+        
+    error = None
+    if request.method == 'POST':
+        identifier = request.form.get('identifier')
+        password = request.form.get('password')
+        
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM users WHERE email = %s OR phone = %s", (identifier, identifier))
+            user = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            if user and check_password_hash(user['password'], password):
+                session['user_id'] = user['id']
+                session['name'] = user['name']
+                return redirect(url_for('index'))
+            else:
+                error = 'Invalid email/phone or password.'
+        else:
+            error = 'Database connection error.'
+            
+    return render_template('login.html', error=error)
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if 'user_id' in session:
+        return redirect(url_for('index'))
+        
+    error = None
+    if request.method == 'POST':
+        name = request.form.get('name')
+        email = request.form.get('email')
+        phone = request.form.get('phone')
+        password = request.form.get('password')
+        
+        if not name or not password or (not email and not phone):
+            error = 'Please fill required fields.'
+        else:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT * FROM users WHERE email = %s OR phone = %s", (email, phone))
+                if cursor.fetchone():
+                    error = 'Email or phone already exists.'
+                else:
+                    hashed_pwd = generate_password_hash(password)
+                    try:
+                        cursor.execute("INSERT INTO users (name, email, phone, password) VALUES (%s, %s, %s, %s)",
+                                       (name, email, phone, hashed_pwd))
+                        conn.commit()
+                        return redirect(url_for('login'))
+                    except Exception as e:
+                        error = 'Registration failed.'
+                cursor.close()
+                conn.close()
+            else:
+                error = 'Database connection error.'
+                
+    return render_template('signup.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+# ========== YOUR ORIGINAL /update ENDPOINT (MODIFIED TOO) ==========
 @app.route('/update', methods=['GET', 'POST'])
 def update_data():
     try:
@@ -146,19 +374,16 @@ def update_data():
                 except ValueError:
                     return default
 
-            # Handle ThingSpeak Style GET Request from the hardware
             device_id = str(request.args.get('api_key', 'Unknown_Auth'))
             device_name = str(request.args.get('device_name', 'ThingSpeak_Node'))
             pres = safe_float(request.args.get('field1', 0.0))
             temp = safe_float(request.args.get('field2', 0.0))
             
-            # Math conversion: field3 sending 11.30 -> "11:30"
             m_float = safe_float(request.args.get('field3', 0.0))
             e_float = safe_float(request.args.get('field4', 0.0))
             morning_time = f"{int(m_float):02d}:{round((m_float % 1) * 100):02d}"
             evening_time = f"{int(e_float):02d}:{round((e_float % 1) * 100):02d}"
             
-            # Build SS.MM formatting for on/off durations (2 digits sec, 1 digits ms)
             on_f = safe_float(request.args.get('field5', 0.0))
             off_f = safe_float(request.args.get('field6', 0.0))
             on_time = f"{int(on_f):02d}:{int(round((on_f % 1) * 100)):02d}"
@@ -172,7 +397,6 @@ def update_data():
             data = request.json
             if not data:
                 return jsonify({'status': 'error', 'message': 'No JSON payload provided'}), 400
-            # Validate data types
             try:
                 device_id = str(data.get('mainid', 'Unknown'))
                 device_name = str(data.get('Device_name', data.get('device_name', 'Unknown')))
@@ -181,7 +405,6 @@ def update_data():
                 limitA = bool(data.get('limitA', False))
                 limitB = bool(data.get('limitB', False))
                 
-                # Added new payload variable extractors with robust defaults
                 on_time = str(data.get('on_time', data.get('on time', '0')))
                 off_time = str(data.get('off_time', data.get('off time', '0')))
                 morning_time = str(data.get('morning_time', data.get('morning time', '--:--')))
@@ -200,11 +423,7 @@ def update_data():
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             
-            # Optional timestamp
             if not timestamp:
-                from datetime import datetime, timedelta
-                # Force IST by adding 5 hours 30 mins to UTC. This ensures it displays 
-                # correctly even when running on Render's UTC-default servers.
                 ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -410,7 +629,6 @@ def schedule_data():
             morning_time = str(data.get('morning_time', '--:--'))
             evening_time = str(data.get('evening_time', '--:--'))
             
-            from datetime import datetime, timedelta
             ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
             timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -455,7 +673,7 @@ def schedule_history_data():
 def health():
     return jsonify({'status': 'healthy', 'db': 'available' if get_db_connection() else 'error'})
 
-# Auto-initialize on import so gunicorn runs it.
+# Auto-initialize on import
 try:
     init_db()
 except Exception as e:
