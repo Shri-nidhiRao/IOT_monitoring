@@ -1,0 +1,9 @@
+Django>=4.2,<6.1
+django-cors-headers
+mysql-connector-python==9.1.0
+requests==2.32.3
+gunicorn
+python-dotenv
+dj-database-url
+psycopg2-binary
+whitenoise

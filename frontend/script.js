@@ -1,3 +1,5 @@
+// Change this to your deployed backend URL in production (e.g., "https://api.yourdomain.com")
+const API_BASE = "http://127.0.0.1:5000";
 let temperatureChart;
 let pressureChart;
 let maxPoints = 20;
@@ -88,14 +90,14 @@ function initCharts() {
 
 async function updateLatest() {
     try {
-        const response = await fetch('/latest');
+        const response = await fetch(`${API_BASE}/latest`);
         if (!response.ok) return;
         const data = await response.json();
         if (data.id) {
             document.getElementById('temp').textContent = data.temperature.toFixed(1) + ' °C';
             document.getElementById('pressure').textContent = data.pressure.toFixed(1) + ' kPa';
             document.getElementById('last-updated').textContent = new Date(data.timestamp).toLocaleString();
-            
+
             document.getElementById('disp-on-time').textContent = data.on_time || '--';
             document.getElementById('disp-off-time').textContent = data.off_time || '--';
             document.getElementById('disp-morning-time').textContent = data.morning_time || '--:--';
@@ -119,7 +121,7 @@ async function updateLatest() {
 
 async function updateHistory() {
     try {
-        const response = await fetch('/history');
+        const response = await fetch(`${API_BASE}/history`);
         if (!response.ok) return;
         const history = await response.json();
         const labels = history.map(h => new Date(h.timestamp).toLocaleTimeString()).slice(0, maxPoints).reverse();
@@ -140,7 +142,7 @@ async function updateHistory() {
 
 async function updateLogs() {
     try {
-        const response = await fetch('/history');
+        const response = await fetch(`${API_BASE}/history`);
         if (!response.ok) return;
         const history = await response.json();
         const tbody = document.querySelector('#logsTable tbody');
@@ -169,7 +171,7 @@ async function updateLogs() {
 
 async function fetchSchedule() {
     try {
-        const response = await fetch('/schedule');
+        const response = await fetch(`${API_BASE}/schedule`);
         if (!response.ok) return;
         const data = await response.json();
         if (data.on_time && data.on_time !== '--') {
@@ -200,19 +202,19 @@ document.getElementById('save-schedule')?.addEventListener('click', async () => 
     btn.disabled = true;
 
     try {
-        const response = await fetch('/schedule', {
+        const response = await fetch(`${API_BASE}/schedule`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ 
-                on_time: onTime, 
+            body: JSON.stringify({
+                on_time: onTime,
                 off_time: offTime,
                 morning_time: morningTime,
                 evening_time: eveningTime
             })
         });
-        
+
         if (response.ok) {
             btn.textContent = 'Submitted!';
             setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
@@ -232,7 +234,7 @@ document.getElementById('save-schedule')?.addEventListener('click', async () => 
 
 async function updateScheduleHistory() {
     try {
-        const response = await fetch('/schedule-history');
+        const response = await fetch(`${API_BASE}/schedule-history`);
         if (!response.ok) return;
         const history = await response.json();
         const tbody = document.querySelector('#scheduleHistoryTable tbody');
@@ -243,8 +245,8 @@ async function updateScheduleHistory() {
                 <td>${row.id}</td>
                 <td>${row.on_time || '--'}</td>
                 <td>${row.off_time || '--'}</td>
-                <td>${row.morning_time ? row.morning_time.split(':').slice(0,2).join(':') : '--:--'}</td>
-                <td>${row.evening_time ? row.evening_time.split(':').slice(0,2).join(':') : '--:--'}</td>
+                <td>${row.morning_time ? row.morning_time.split(':').slice(0, 2).join(':') : '--:--'}</td>
+                <td>${row.evening_time ? row.evening_time.split(':').slice(0, 2).join(':') : '--:--'}</td>
                 <td>${new Date(row.timestamp).toLocaleString()}</td>
             `;
             tbody.appendChild(tr);
@@ -261,10 +263,10 @@ document.querySelectorAll('.sidebar a').forEach(link => {
         document.getElementById('dashboard').style.display = href === '#dashboard' ? 'block' : 'none';
         document.getElementById('logs').style.display = href === '#logs' ? 'block' : 'none';
         document.getElementById('schedule-history').style.display = href === '#schedule-history' ? 'block' : 'none';
-        
+
         document.querySelector('.sidebar .active').classList.remove('active');
         link.parentElement.classList.add('active');
-        
+
         if (href === '#logs') updateLogs();
         if (href === '#schedule-history') updateScheduleHistory();
     });

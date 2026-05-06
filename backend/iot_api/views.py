@@ -1,60 +1,17 @@
 import os
+import json
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template
+
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.views.decorators.csrf import csrf_exempt
+
 import mysql.connector
 from mysql.connector import Error
-from datetime import datetime, timedelta
 
-load_dotenv()
-
-app = Flask(__name__)
-
-# ========== MIDDLEWARE TO ALLOW HTTP FOR IOT DEVICES ==========
-@app.before_request
-def allow_http_for_iot():
-    """Allow HTTP requests from IoT devices (ESP32, SIM800L) while redirecting browsers to HTTPS"""
-    
-    # List of endpoints that should accept HTTP (your IoT endpoints)
-    iot_endpoints = ['/update', '/schedule', '/health', '/latest', '/history', '/update-http', '/schedule-http']
-    
-    # Check if this is an IoT endpoint
-    is_iot_endpoint = False
-    for endpoint in iot_endpoints:
-        if request.path.startswith(endpoint):
-            is_iot_endpoint = True
-            break
-    
-    # Check User-Agent for IoT devices
-    user_agent = request.headers.get('User-Agent', '').lower()
-    is_iot_device = any(device in user_agent for device in [
-        'esp32', 'esp8266', 'arduino', 'sim800', 'sim900', 
-        'thingspeak', 'httpclient', 'esp', 'micropython'
-    ])
-    
-    # Check for custom IoT header
-    is_iot_header = request.headers.get('X-IoT-Device', '').lower() == 'true'
-    
-    # Allow HTTP for IoT devices and endpoints
-    if is_iot_endpoint or is_iot_device or is_iot_header:
-        return None
-    
-    # For normal browsers, redirect to HTTPS on Render
-    if 'render.com' in request.host and not request.is_secure:
-        if request.method == 'OPTIONS':
-            return None
-        
-        https_url = 'https://' + request.host + request.full_path
-        return redirect(https_url, code=301)
-    
-    return None
-
-# ========== CORS HEADERS ==========
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-IoT-Device')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
+# Load environment variables
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 DB_CONFIG = {
     'host': os.environ.get('DB_HOST', 'localhost'),
@@ -101,8 +58,6 @@ def init_db():
                     device_name VARCHAR(100),
                     temperature FLOAT NOT NULL,
                     pressure FLOAT NOT NULL,
-                    limit_switch_A BOOLEAN NOT NULL,
-                    limit_switch_B BOOLEAN NOT NULL,
                     on_time VARCHAR(50),
                     off_time VARCHAR(50),
                     morning_time VARCHAR(50),
@@ -113,19 +68,23 @@ def init_db():
             """)
             
             try:
+                cursor.execute("ALTER TABLE logs_table DROP COLUMN limit_switch_A;")
+            except Error:
+                pass
+            try:
+                cursor.execute("ALTER TABLE logs_table DROP COLUMN limit_switch_B;")
+            except Error:
+                pass
+            
+            try:
                 cursor.execute("ALTER TABLE logs_table DROP COLUMN status;")
             except Error:
                 pass
             
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS schedule_table (
-                    id INT PRIMARY KEY,
-                    on_time VARCHAR(50),
-                    off_time VARCHAR(50),
-                    morning_time VARCHAR(50),
-                    evening_time VARCHAR(50)
-                )
-            """)
+            try:
+                cursor.execute("DROP TABLE IF EXISTS schedule_table;")
+            except Error:
+                pass
             
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS schedule_history (
@@ -138,7 +97,7 @@ def init_db():
                 )
             """)
             
-            for tbl in ['schedule_table', 'schedule_history']:
+            for tbl in ['schedule_history']:
                 try:
                     cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN morning_time VARCHAR(50);")
                 except Error: pass
@@ -152,10 +111,10 @@ def init_db():
                     cursor.execute(f"ALTER TABLE {tbl} MODIFY COLUMN off_time VARCHAR(50);")
                 except Error: pass
             
-            cursor.execute("SELECT COUNT(*) FROM schedule_table WHERE id = 1")
+            cursor.execute("SELECT COUNT(*) FROM schedule_history")
             (count,) = cursor.fetchone()
             if count == 0:
-                cursor.execute("INSERT INTO schedule_table (id, on_time, off_time, morning_time, evening_time) VALUES (1, '10', '10', '08:00', '18:00')")
+                cursor.execute("INSERT INTO schedule_history (on_time, off_time, morning_time, evening_time) VALUES ('10', '10', '08:00', '18:00')")
 
             conn.commit()
             print("Database and tables initialized.")
@@ -167,204 +126,13 @@ def init_db():
     else:
         print("Failed to connect to DB for initialization.")
 
-# ========== TEST ENDPOINT FOR HTTP ==========
-@app.route('/test-http', methods=['GET'])
-def test_http():
-    """Test endpoint to verify HTTP is working"""
-    return jsonify({
-        'status': 'success',
-        'message': 'HTTP connection working!',
-        'protocol': request.scheme,
-        'user_agent': request.headers.get('User-Agent', 'Unknown'),
-        'esp32_ready': True
-    }), 200
+# Auto-initialize DB on module load
+try:
+    init_db()
+except Exception as e:
+    print(f"Startup DB init failed: {e}")
 
-# ========== HTTP-ONLY ENDPOINTS FOR ESP32 ==========
-@app.route('/update-http', methods=['POST', 'GET'])
-def update_data_http():
-    """HTTP-only endpoint for ESP32 - no HTTPS redirect"""
-    try:
-        if request.method == 'GET':
-            # Handle ThingSpeak style GET
-            device_id = str(request.args.get('api_key', 'ESP32_001'))
-            device_name = str(request.args.get('device_name', 'SolarTracker_GSM'))
-            temp = float(request.args.get('field1', 0.0))
-            pres = float(request.args.get('field2', 0.0))
-            on_time = str(request.args.get('field3', '05:00'))
-            off_time = str(request.args.get('field4', '10:00'))
-            morning_time = str(request.args.get('field5', '08:00'))
-            evening_time = str(request.args.get('field6', '18:00'))
-            motor_status = str(request.args.get('field7', 'WAIT'))
-            limitA = False
-            limitB = False
-        else:
-            # Handle POST JSON
-            data = request.json
-            if not data:
-                return jsonify({'status': 'error', 'message': 'No JSON payload'}), 400
-            
-            device_id = str(data.get('mainid', 'ESP32_001'))
-            device_name = str(data.get('Device_name', 'SolarTracker_GSM'))
-            temp = float(data.get('temperature', 0.0))
-            pres = float(data.get('pressure', 0.0))
-            on_time = str(data.get('on_time', '05:00'))
-            off_time = str(data.get('off_time', '10:00'))
-            morning_time = str(data.get('morning_time', '08:00'))
-            evening_time = str(data.get('evening_time', '18:00'))
-            motor_status = str(data.get('motor_status', 'WAIT'))
-            limitA = False
-            limitB = False
-        
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            
-            ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
-            timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
-            
-            query = """
-            INSERT INTO logs_table (device_id, device_name, temperature, pressure, limit_switch_A, limit_switch_B, 
-            on_time, off_time, morning_time, evening_time, motor_status, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            
-            cursor.execute(query, (device_id, device_name, temp, pres, limitA, limitB, 
-                                  on_time, off_time, morning_time, evening_time, motor_status, timestamp))
-            
-            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
-            schedule_row = cursor.fetchone()
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
-            if schedule_row:
-                return jsonify({
-                    'status': 'success',
-                    'on_time': str(schedule_row[0]) if schedule_row[0] else '10',
-                    'off_time': str(schedule_row[1]) if schedule_row[1] else '10',
-                    'morning_time': str(schedule_row[2]) if schedule_row[2] else '08:00',
-                    'evening_time': str(schedule_row[3]) if schedule_row[3] else '18:00'
-                })
-            
-            return jsonify({'status': 'success'})
-        else:
-            return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-@app.route('/schedule-http', methods=['GET'])
-def schedule_data_http():
-    """HTTP-only endpoint for ESP32 to get schedule"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        if result:
-            return jsonify({
-                'on_time': str(result['on_time']) if result['on_time'] else '10',
-                'off_time': str(result['off_time']) if result['off_time'] else '10',
-                'morning_time': str(result['morning_time']) if result['morning_time'] else '08:00',
-                'evening_time': str(result['evening_time']) if result['evening_time'] else '18:00'
-            })
-    return jsonify({'on_time': '10', 'off_time': '10', 'morning_time': '08:00', 'evening_time': '18:00'})
-
-# ========== YOUR EXISTING ROUTES (KEEP AS IS) ==========
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-# ========== YOUR ORIGINAL /update ENDPOINT (MODIFIED TOO) ==========
-@app.route('/update', methods=['GET', 'POST'])
-def update_data():
-    try:
-        if request.method == 'GET':
-            def safe_float(val, default=0.0):
-                try:
-                    return float(val) if (val and str(val).strip() != "") else default
-                except ValueError:
-                    return default
-
-            device_id = str(request.args.get('api_key', 'Unknown_Auth'))
-            device_name = str(request.args.get('device_name', 'ThingSpeak_Node'))
-            pres = safe_float(request.args.get('field1', 0.0))
-            temp = safe_float(request.args.get('field2', 0.0))
-            
-            m_float = safe_float(request.args.get('field3', 0.0))
-            e_float = safe_float(request.args.get('field4', 0.0))
-            morning_time = f"{int(m_float):02d}:{round((m_float % 1) * 100):02d}"
-            evening_time = f"{int(e_float):02d}:{round((e_float % 1) * 100):02d}"
-            
-            on_f = safe_float(request.args.get('field5', 0.0))
-            off_f = safe_float(request.args.get('field6', 0.0))
-            on_time = f"{int(on_f):02d}:{int(round((on_f % 1) * 100)):02d}"
-            off_time = f"{int(off_f):02d}:{int(round((off_f % 1) * 100)):02d}"
-            
-            limitA = False
-            limitB = False
-            motor_status = 'Unknown'
-            timestamp = None
-        else:
-            data = request.json
-            if not data:
-                return jsonify({'status': 'error', 'message': 'No JSON payload provided'}), 400
-            try:
-                device_id = str(data.get('mainid', 'Unknown'))
-                device_name = str(data.get('Device_name', data.get('device_name', 'Unknown')))
-                temp = float(data.get('temperature', 0.0))
-                pres = float(data.get('pressure', 0.0))
-                limitA = bool(data.get('limitA', False))
-                limitB = bool(data.get('limitB', False))
-                
-                on_time = str(data.get('on_time', data.get('on time', '0')))
-                off_time = str(data.get('off_time', data.get('off time', '0')))
-                morning_time = str(data.get('morning_time', data.get('morning time', '--:--')))
-                evening_time = str(data.get('evening_time', data.get('evening time', '--:--')))
-                motor_status = str(data.get('motor_status', data.get('motor status', 'Unknown')))
-                timestamp = data.get('timestamp')
-            except ValueError:
-                return jsonify({'status': 'error', 'message': 'Invalid data types provided'}), 400
-
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-
-            query = """
-            INSERT INTO logs_table (device_id, device_name, temperature, pressure, limit_switch_A, limit_switch_B, on_time, off_time, morning_time, evening_time, motor_status, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            
-            if not timestamp:
-                ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
-                timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
-
-            cursor.execute(query, (device_id, device_name, temp, pres, limitA, limitB, on_time, off_time, morning_time, evening_time, motor_status, timestamp))
-            
-            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
-            schedule_row = cursor.fetchone()
-
-            conn.commit()
-            cursor.close()
-            conn.close()
-
-            if schedule_row:
-                return jsonify({
-                    'status': 'success',
-                    'on_time': str(schedule_row[0]) if schedule_row[0] is not None else '--',
-                    'off_time': str(schedule_row[1]) if schedule_row[1] is not None else '--',
-                    'morning_time': str(schedule_row[2]) if schedule_row[2] is not None else '--:--',
-                    'evening_time': str(schedule_row[3]) if schedule_row[3] is not None else '--:--'
-                })
-
-            return jsonify({'status': 'success'})
-        else:
-            return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
+# Helpers
 def format_seconds_ms(val_str):
     if not val_str or val_str == '--': return '--'
     try:
@@ -432,8 +200,192 @@ def format_latest_result(result):
             result['evening_time'] = format_min_sec(result['evening_time'])
     return result
 
-@app.route('/latest', methods=['GET'])
-def latest_data():
+# VIEWS
+
+def test_http(request):
+    return JsonResponse({
+        'status': 'success',
+        'message': 'HTTP connection working!',
+        'protocol': request.scheme,
+        'user_agent': request.headers.get('User-Agent', 'Unknown'),
+        'esp32_ready': True
+    }, status=200)
+
+@csrf_exempt
+def update_data_http(request):
+    try:
+        if request.method == 'GET':
+            device_id = str(request.GET.get('api_key', 'ESP32_001'))
+            device_name = str(request.GET.get('device_name', 'SolarTracker_GSM'))
+            temp = float(request.GET.get('field1', 0.0))
+            pres = float(request.GET.get('field2', 0.0))
+            on_time = str(request.GET.get('field3', '05:00'))
+            off_time = str(request.GET.get('field4', '10:00'))
+            morning_time = str(request.GET.get('field5', '08:00'))
+            evening_time = str(request.GET.get('field6', '18:00'))
+            motor_status = str(request.GET.get('field7', 'WAIT'))
+        else:
+            try:
+                data = json.loads(request.body)
+            except json.JSONDecodeError:
+                return JsonResponse({'status': 'error', 'message': 'No JSON payload'}, status=400)
+            
+            if not data:
+                return JsonResponse({'status': 'error', 'message': 'No JSON payload'}, status=400)
+            
+            device_id = str(data.get('mainid', 'ESP32_001'))
+            device_name = str(data.get('Device_name', 'SolarTracker_GSM'))
+            temp = float(data.get('temperature', 0.0))
+            pres = float(data.get('pressure', 0.0))
+            on_time = str(data.get('on_time', '05:00'))
+            off_time = str(data.get('off_time', '10:00'))
+            morning_time = str(data.get('morning_time', '08:00'))
+            evening_time = str(data.get('evening_time', '18:00'))
+            motor_status = str(data.get('motor_status', 'WAIT'))
+        
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            
+            ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
+            
+            query = """
+            INSERT INTO logs_table (device_id, device_name, temperature, pressure, 
+            on_time, off_time, morning_time, evening_time, motor_status, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(query, (device_id, device_name, temp, pres, 
+                                  on_time, off_time, morning_time, evening_time, motor_status, timestamp))
+            
+            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_history ORDER BY id DESC LIMIT 1")
+            schedule_row = cursor.fetchone()
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            if schedule_row:
+                return JsonResponse({
+                    'status': 'success',
+                    'on_time': str(schedule_row[0]) if schedule_row[0] else '10',
+                    'off_time': str(schedule_row[1]) if schedule_row[1] else '10',
+                    'morning_time': str(schedule_row[2]) if schedule_row[2] else '08:00',
+                    'evening_time': str(schedule_row[3]) if schedule_row[3] else '18:00'
+                })
+            
+            return JsonResponse({'status': 'success'})
+        else:
+            return JsonResponse({'status': 'error', 'message': 'Database connection failed'}, status=500)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+def schedule_data_http(request):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_history ORDER BY id DESC LIMIT 1")
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if result:
+            return JsonResponse({
+                'on_time': str(result['on_time']) if result['on_time'] else '10',
+                'off_time': str(result['off_time']) if result['off_time'] else '10',
+                'morning_time': str(result['morning_time']) if result['morning_time'] else '08:00',
+                'evening_time': str(result['evening_time']) if result['evening_time'] else '18:00'
+            })
+    return JsonResponse({'on_time': '10', 'off_time': '10', 'morning_time': '08:00', 'evening_time': '18:00'})
+
+@csrf_exempt
+def update_data(request):
+    try:
+        if request.method == 'GET':
+            def safe_float(val, default=0.0):
+                try:
+                    return float(val) if (val and str(val).strip() != "") else default
+                except ValueError:
+                    return default
+
+            device_id = str(request.GET.get('api_key', 'Unknown_Auth'))
+            device_name = str(request.GET.get('device_name', 'ThingSpeak_Node'))
+            pres = safe_float(request.GET.get('field1', 0.0))
+            temp = safe_float(request.GET.get('field2', 0.0))
+            
+            m_float = safe_float(request.GET.get('field3', 0.0))
+            e_float = safe_float(request.GET.get('field4', 0.0))
+            morning_time = f"{int(m_float):02d}:{round((m_float % 1) * 100):02d}"
+            evening_time = f"{int(e_float):02d}:{round((e_float % 1) * 100):02d}"
+            
+            on_f = safe_float(request.GET.get('field5', 0.0))
+            off_f = safe_float(request.GET.get('field6', 0.0))
+            on_time = f"{int(on_f):02d}:{int(round((on_f % 1) * 100)):02d}"
+            off_time = f"{int(off_f):02d}:{int(round((off_f % 1) * 100)):02d}"
+            
+            motor_status = 'Unknown'
+            timestamp = None
+        else:
+            try:
+                data = json.loads(request.body)
+            except json.JSONDecodeError:
+                return JsonResponse({'status': 'error', 'message': 'No JSON payload provided'}, status=400)
+                
+            if not data:
+                return JsonResponse({'status': 'error', 'message': 'No JSON payload provided'}, status=400)
+            try:
+                device_id = str(data.get('mainid', 'Unknown'))
+                device_name = str(data.get('Device_name', data.get('device_name', 'Unknown')))
+                temp = float(data.get('temperature', 0.0))
+                pres = float(data.get('pressure', 0.0))
+                
+                on_time = str(data.get('on_time', data.get('on time', '0')))
+                off_time = str(data.get('off_time', data.get('off time', '0')))
+                morning_time = str(data.get('morning_time', data.get('morning time', '--:--')))
+                evening_time = str(data.get('evening_time', data.get('evening time', '--:--')))
+                motor_status = str(data.get('motor_status', data.get('motor status', 'Unknown')))
+                timestamp = data.get('timestamp')
+            except ValueError:
+                return JsonResponse({'status': 'error', 'message': 'Invalid data types provided'}, status=400)
+
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+
+            query = """
+            INSERT INTO logs_table (device_id, device_name, temperature, pressure, on_time, off_time, morning_time, evening_time, motor_status, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            if not timestamp:
+                ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+                timestamp = ist_time.strftime('%Y-%m-%d %H:%M:%S')
+
+            cursor.execute(query, (device_id, device_name, temp, pres, on_time, off_time, morning_time, evening_time, motor_status, timestamp))
+            
+            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_history ORDER BY id DESC LIMIT 1")
+            schedule_row = cursor.fetchone()
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            if schedule_row:
+                return JsonResponse({
+                    'status': 'success',
+                    'on_time': str(schedule_row[0]) if schedule_row[0] is not None else '--',
+                    'off_time': str(schedule_row[1]) if schedule_row[1] is not None else '--',
+                    'morning_time': str(schedule_row[2]) if schedule_row[2] is not None else '--:--',
+                    'evening_time': str(schedule_row[3]) if schedule_row[3] is not None else '--:--'
+                })
+
+            return JsonResponse({'status': 'success'})
+        else:
+            return JsonResponse({'status': 'error', 'message': 'Database connection failed'}, status=500)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+def latest_data(request):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
@@ -442,11 +394,10 @@ def latest_data():
         cursor.close()
         conn.close()
         if result:
-            return jsonify(format_latest_result(result))
-    return jsonify({}), 404
+            return JsonResponse(format_latest_result(result))
+    return JsonResponse({}, status=404)
 
-@app.route('/latest/id/<string:device_id>', methods=['GET'])
-def latest_by_id(device_id):
+def latest_by_id(request, device_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
@@ -455,11 +406,10 @@ def latest_by_id(device_id):
         cursor.close()
         conn.close()
         if result:
-            return jsonify(format_latest_result(result))
-    return jsonify({}), 404
+            return JsonResponse(format_latest_result(result))
+    return JsonResponse({}, status=404)
 
-@app.route('/latest/name/<string:device_name>', methods=['GET'])
-def latest_by_name(device_name):
+def latest_by_name(request, device_name):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
@@ -468,11 +418,10 @@ def latest_by_name(device_name):
         cursor.close()
         conn.close()
         if result:
-            return jsonify(format_latest_result(result))
-    return jsonify({}), 404
+            return JsonResponse(format_latest_result(result))
+    return JsonResponse({}, status=404)
 
-@app.route('/history', methods=['GET'])
-def history_data():
+def history_data(request):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
@@ -480,11 +429,10 @@ def history_data():
         results = cursor.fetchall()
         cursor.close()
         conn.close()
-        return jsonify(format_history_results(results))
-    return jsonify([]), 500
+        return JsonResponse(format_history_results(results), safe=False)
+    return JsonResponse([], safe=False, status=500)
 
-@app.route('/history/id/<string:device_id>', methods=['GET'])
-def history_by_id(device_id):
+def history_by_id(request, device_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
@@ -492,11 +440,10 @@ def history_by_id(device_id):
         results = cursor.fetchall()
         cursor.close()
         conn.close()
-        return jsonify(format_history_results(results))
-    return jsonify([]), 500
+        return JsonResponse(format_history_results(results), safe=False)
+    return JsonResponse([], safe=False, status=500)
 
-@app.route('/history/name/<string:device_name>', methods=['GET'])
-def history_by_name(device_name):
+def history_by_name(request, device_name):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
@@ -504,16 +451,16 @@ def history_by_name(device_name):
         results = cursor.fetchall()
         cursor.close()
         conn.close()
-        return jsonify(format_history_results(results))
-    return jsonify([]), 500
+        return JsonResponse(format_history_results(results), safe=False)
+    return JsonResponse([], safe=False, status=500)
 
-@app.route('/schedule', methods=['GET', 'POST'])
-def schedule_data():
+@csrf_exempt
+def schedule_data(request):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         if request.method == 'GET':
-            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_table WHERE id = 1")
+            cursor.execute("SELECT on_time, off_time, morning_time, evening_time FROM schedule_history ORDER BY id DESC LIMIT 1")
             result = cursor.fetchone()
             cursor.close()
             conn.close()
@@ -522,21 +469,25 @@ def schedule_data():
                 off_time_str = str(result['off_time']) if result['off_time'] is not None else '--'
                 morning_time_str = str(result['morning_time']) if result['morning_time'] is not None else '--:--'
                 evening_time_str = str(result['evening_time']) if result['evening_time'] is not None else '--:--'
-                return jsonify({
+                return JsonResponse({
                     'on_time': on_time_str, 
                     'off_time': off_time_str, 
                     'morning_time': morning_time_str, 
                     'evening_time': evening_time_str
                 })
             else:
-                return jsonify({
+                return JsonResponse({
                     'on_time': '--', 'off_time': '--', 'morning_time': '--:--', 'evening_time': '--:--'
                 })
 
         elif request.method == 'POST':
-            data = request.json
+            try:
+                data = json.loads(request.body)
+            except json.JSONDecodeError:
+                return JsonResponse({'status': 'error', 'message': 'Missing JSON body'}, status=400)
+                
             if not data or 'on_time' not in data or 'off_time' not in data:
-                return jsonify({'status': 'error', 'message': 'Missing on_time or off_time fields'}), 400
+                return JsonResponse({'status': 'error', 'message': 'Missing on_time or off_time fields'}, status=400)
             
             on_time = str(data['on_time'])
             off_time = str(data['off_time'])
@@ -548,24 +499,19 @@ def schedule_data():
 
             try:
                 cursor.execute(
-                    "UPDATE schedule_table SET on_time = %s, off_time = %s, morning_time = %s, evening_time = %s WHERE id = 1",
-                    (on_time, off_time, morning_time, evening_time)
-                )
-                cursor.execute(
                     "INSERT INTO schedule_history (on_time, off_time, morning_time, evening_time, timestamp) VALUES (%s, %s, %s, %s, %s)",
                     (on_time, off_time, morning_time, evening_time, timestamp)
                 )
                 conn.commit()
                 cursor.close()
                 conn.close()
-                return jsonify({'status': 'success'})
+                return JsonResponse({'status': 'success'})
             except Exception as e:
                 print(f"Schedule API Crash: {e}")
-                return jsonify({'status': 'error', 'message': str(e)}), 500
-    return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
+                return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+    return JsonResponse({'status': 'error', 'message': 'Database connection failed'}, status=500)
 
-@app.route('/schedule-history', methods=['GET'])
-def schedule_history_data():
+def schedule_history_data(request):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
@@ -580,18 +526,8 @@ def schedule_history_data():
                 r['on_time'] = str(r['on_time'])
             if 'off_time' in r and r['off_time'] is not None:
                 r['off_time'] = str(r['off_time'])
-        return jsonify(results)
-    return jsonify([]), 500
+        return JsonResponse(results, safe=False)
+    return JsonResponse([], safe=False, status=500)
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({'status': 'healthy', 'db': 'available' if get_db_connection() else 'error'})
-
-# Auto-initialize on import
-try:
-    init_db()
-except Exception as e:
-    print(f"Startup DB init failed: {e}")
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+def health(request):
+    return JsonResponse({'status': 'healthy', 'db': 'available' if get_db_connection() else 'error'})
